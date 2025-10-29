@@ -33,7 +33,7 @@
   let userCircle = null;
   let hasCentered = false;
 
-  // Inject CSS for pulsing dot
+  // Inject CSS for pulsing dot + dest pin
   const style = document.createElement("style");
   style.textContent = `
     @keyframes pulse {
@@ -58,6 +58,14 @@
       border-radius: 50%;
       background: rgba(96,165,250,0.5);
       animation: pulse 2s infinite;
+    }
+    .destination-pin {
+      width: 18px;
+      height: 18px;
+      background: radial-gradient(circle at 35% 30%, #00f3ff, #0077ff);
+      border: 2px solid white;
+      border-radius: 50% 50% 50% 50%;
+      box-shadow: 0 0 10px rgba(0,243,255,0.6);
     }
   `;
   document.head.appendChild(style);
@@ -96,6 +104,16 @@
       map.setView(latlng, 15);
       hasCentered = true;
     }
+
+    // If a route exists, update the from waypoint to the new live location
+    if (window.__NAV__ && window.__NAV__.routeControl && window.__NAV__.destinationMarker) {
+      try {
+        window.__NAV__.routeControl.setWaypoints([latlng, window.__NAV__.destinationMarker.getLatLng()]);
+      } catch (e) {
+        // silent fail: routeControl may not be ready
+        console.warn("Failed to update route waypoints:", e);
+      }
+    }
   }
 
   // --- Use native Geolocation API for better control ---
@@ -130,9 +148,144 @@
 
   startHighAccuracyWatch();
 
-  // --- ✅ EXPORT FOR APP.JS ---
+  // ----------------------------
+  // DESTINATION + ROUTING LOGIC
+  // ----------------------------
+  let destinationMarker = null;
+  let routeControl = null;
+  let lastFitOnce = false; // we will fit bounds the first time route is created
+
+  function createDestinationMarker(latlng) {
+    // create draggable marker with custom icon
+    const destIcon = L.divIcon({
+      className: "",
+      html: `<div class="destination-pin"></div>`,
+      iconSize: [18, 18],
+      iconAnchor: [9, 9],
+    });
+
+    if (!destinationMarker) {
+      destinationMarker = L.marker(latlng, { icon: destIcon, draggable: true }).addTo(map);
+      destinationMarker.on("dragend", () => {
+        // recalc route when user drags destination
+        updateRoute();
+      });
+      destinationMarker.bindPopup("Destination").openPopup();
+    } else {
+      destinationMarker.setLatLng(latlng);
+    }
+
+    // store on global NAV for other modules
+    window.__NAV__.destinationMarker = destinationMarker;
+    return destinationMarker;
+  }
+
+  function clearDestination() {
+    if (destinationMarker) {
+      try { map.removeLayer(destinationMarker); } catch (e) {}
+      destinationMarker = null;
+      if (window.__NAV__) window.__NAV__.destinationMarker = null;
+    }
+    if (routeControl) {
+      try { map.removeControl(routeControl); } catch (e) {}
+      routeControl = null;
+      if (window.__NAV__) window.__NAV__.routeControl = null;
+    }
+    lastFitOnce = false;
+  }
+
+  function updateRoute() {
+    // If no destination or no user marker, remove route (or do nothing)
+    if (!destinationMarker || !userMarker) {
+      if (routeControl) {
+        try { map.removeControl(routeControl); } catch (e) {}
+        routeControl = null;
+      }
+      if (window.__NAV__) window.__NAV__.routeControl = null;
+      return;
+    }
+
+    const from = userMarker.getLatLng();
+    const to = destinationMarker.getLatLng();
+
+    // if routeControl exists, only update waypoints (cheap)
+    if (routeControl) {
+      try {
+        routeControl.setWaypoints([from, to]);
+      } catch (e) {
+        console.warn("setWaypoints failed, recreating routeControl:", e);
+        // fallback recreate
+        try { map.removeControl(routeControl); } catch (er) {}
+        routeControl = null;
+      }
+      return;
+    }
+
+    // Create new routing control
+    routeControl = L.Routing.control({
+      waypoints: [from, to],
+      router: L.Routing.osrmv1({
+        language: 'en',
+        profile: 'car'
+      }),
+      createMarker: function() { return null; }, // we use our own markers
+      addWaypoints: false,
+      routeWhileDragging: false,
+      showAlternatives: false,
+      fitSelectedRoutes: false, // we'll manually control fit
+      lineOptions: { styles: [{ color: "#00f3ff", opacity: 0.95, weight: 6 }] },
+      show: false
+    }).addTo(map);
+
+    if (window.__NAV__) window.__NAV__.routeControl = routeControl;
+
+    routeControl.on('routesfound', function(e) {
+      if (!lastFitOnce && e && e.routes && e.routes.length) {
+        const route = e.routes[0];
+        const bounds = L.latLngBounds(
+          route.coordinates.map(c => L.latLng(c.lat, c.lng))
+        );
+        map.fitBounds(bounds.pad(0.2));
+        lastFitOnce = true;
+      }
+    });
+
+    routeControl.on('routingerror', function(err) {
+      console.warn("Routing error:", err);
+    });
+  }
+
+  // Map click places/moves destination
+  map.on('click', function(e) {
+    createDestinationMarker(e.latlng);
+    updateRoute();
+  });
+
+  // <<< ADDED: helper so other modules (app.js) can set destination programmatically
+  function setDestination(latlng, popupHtml) {
+    const m = createDestinationMarker(latlng);
+    if (popupHtml && m) {
+      try {
+        m.bindPopup(popupHtml).openPopup();
+      } catch (e) {}
+    }
+    updateRoute();
+    return m;
+  }
+  // <<< END ADDED
+
+  // Expose destination/route control utilities to global NAV object for other modules (app.js, UI, etc.)
+  window.__NAV__ = window.__NAV__ || {};
+  window.__NAV__.map = map;
+  window.__NAV__.markersLayer = markersLayer;
+  window.__NAV__.clearMarkers = clearMarkers;
+  window.__NAV__.clearDestination = clearDestination;
+  // <<< EXPORTED: setDestination
+  window.__NAV__.setDestination = setDestination;
+  // destinationMarker and routeControl are assigned when created
+
+  // --- EXPORT FOR APP.JS (compatibility) ---
   window.map = map;
   window.markersLayer = markersLayer;
   window.clearMarkers = clearMarkers;
-  window.__NAV__ = { map, markersLayer, clearMarkers };
 })();
