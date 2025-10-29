@@ -1,10 +1,10 @@
 (function initMap() {
-  // Geographic bounds to keep the map in view
+  // --- MAP SETUP ---
   const southWest = L.latLng(-85, -180);
   const northEast = L.latLng(85, 180);
   const worldBounds = L.latLngBounds(southWest, northEast);
 
-  // Initialize map (default view: India)
+  // Initialize map (default: India)
   const map = L.map("map", {
     zoomControl: true,
     minZoom: 3,
@@ -14,7 +14,7 @@
     inertia: true,
   }).setView([20.5937, 78.9629], 5);
 
-  // Base map tiles
+  // Base tiles
   L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
     maxZoom: 19,
     noWrap: true,
@@ -22,58 +22,115 @@
     attribution: "&copy; OpenStreetMap contributors",
   }).addTo(map);
 
-  // Marker layer for dynamic markers
+  // --- MARKER LAYER ---
   const markersLayer = L.layerGroup().addTo(map);
-
-  // Helper to clear markers (used by search and categories)
   function clearMarkers() {
     markersLayer.clearLayers();
   }
 
-  // --- ✅ Handle user location ---
-  map.locate({ setView: true, maxZoom: 16 });
+  // --- ✅ USER LOCATION (precise & smooth) ---
+  let userMarker = null;
+  let userCircle = null;
+  let hasCentered = false;
 
-  map.on("locationfound", (e) => {
-    // Limit the radius to avoid huge circles
-    const radius = Math.min(e.accuracy / 4, 300); // capped at 300m
+  // Inject CSS for pulsing dot
+  const style = document.createElement("style");
+  style.textContent = `
+    @keyframes pulse {
+      0% { transform: scale(1); opacity: 1; }
+      70% { transform: scale(2); opacity: 0; }
+      100% { transform: scale(1); opacity: 0; }
+    }
+    .pulse-dot {
+      position: relative;
+      width: 14px;
+      height: 14px;
+      background: #2563eb;
+      border: 2px solid white;
+      border-radius: 50%;
+      box-shadow: 0 0 6px rgba(37,99,235,0.8);
+    }
+    .pulse-dot::after {
+      content: "";
+      position: absolute;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      border-radius: 50%;
+      background: rgba(96,165,250,0.5);
+      animation: pulse 2s infinite;
+    }
+  `;
+  document.head.appendChild(style);
 
-    // Draw a subtle blue circle for location accuracy
-    L.circle(e.latlng, {
-      radius,
-      color: "#3b82f6",
-      fillColor: "#60a5fa",
-      fillOpacity: 0.25,
-      weight: 1,
-    }).addTo(map);
+  // Update marker + circle
+  function updateUserLocation(lat, lon, accuracy) {
+    const latlng = L.latLng(lat, lon);
+    const radius = Math.min(accuracy, 100); // cap radius to 100 m for visuals
 
-    // Create a small glowing dot for the exact position
-    const userIcon = L.divIcon({
-      className: "user-location-dot",
-      html: `<div style="
-        width: 12px;
-        height: 12px;
-        background: #2563eb;
-        border: 2px solid white;
-        border-radius: 50%;
-        box-shadow: 0 0 6px rgba(37,99,235,0.8);
-      "></div>`,
-      iconSize: [12, 12],
-      iconAnchor: [6, 6],
-    });
+    if (!userMarker) {
+      const userIcon = L.divIcon({
+        className: "",
+        html: `<div class="pulse-dot"></div>`,
+        iconSize: [14, 14],
+        iconAnchor: [7, 7],
+      });
+      userMarker = L.marker(latlng, { icon: userIcon }).addTo(map);
+    } else {
+      userMarker.setLatLng(latlng);
+    }
 
-    L.marker(e.latlng, { icon: userIcon })
-      .addTo(map)
-      .bindPopup("You are here")
-      .openPopup();
+    if (!userCircle) {
+      userCircle = L.circle(latlng, {
+        radius,
+        color: "#3b82f6",
+        fillColor: "#60a5fa",
+        fillOpacity: 0.2,
+        weight: 1,
+      }).addTo(map);
+    } else {
+      userCircle.setLatLng(latlng);
+      userCircle.setRadius(radius);
+    }
 
-    map.setView(e.latlng, 14);
-  });
+    if (!hasCentered) {
+      map.setView(latlng, 15);
+      hasCentered = true;
+    }
+  }
 
-  map.on("locationerror", () => {
-    console.warn("Location access denied, using default view.");
-  });
+  // --- Use native Geolocation API for better control ---
+  function startHighAccuracyWatch() {
+    if (!navigator.geolocation) {
+      console.warn("Geolocation not supported.");
+      return;
+    }
 
-  // --- ✅ Expose for other scripts (like app.js) ---
+    navigator.geolocation.watchPosition(
+      (pos) => {
+        const { latitude, longitude, accuracy } = pos.coords;
+
+        // Retry request if accuracy is poor (> 1000m)
+        if (accuracy > 1000) {
+          console.warn("Low accuracy detected:", accuracy);
+          return;
+        }
+
+        updateUserLocation(latitude, longitude, accuracy);
+      },
+      (err) => {
+        console.warn("Geolocation error:", err.message);
+      },
+      {
+        enableHighAccuracy: true,
+        maximumAge: 0,
+        timeout: 10000,
+      }
+    );
+  }
+
+  startHighAccuracyWatch();
+
+  // --- ✅ EXPORT FOR APP.JS ---
   window.map = map;
   window.markersLayer = markersLayer;
   window.clearMarkers = clearMarkers;
