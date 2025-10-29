@@ -1,23 +1,153 @@
 <!DOCTYPE html>
 <html lang="en">
   <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Nav HUD</title>
+
     <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Orbitron:wght@500;700&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&family=Orbitron:wght@600;800&display=swap"
       rel="stylesheet"
     />
 
-    <!-- Custom CSS (Flask syntax) -->
+    <!-- Leaflet -->
     <link
       rel="stylesheet"
-      href="{{ url_for('static', filename='style.css') }}"
+      href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
     />
-    <title>Navigation App</title>
+
+    <link
+      rel="stylesheet"
+      href="{{ url_for('static', filename='css/app.css') }}"
+    />
   </head>
-  <body>
-    <h1>[Name]</h1>
-    <p>A paragraph</p>
+  <body class="theme-dark">
+    <nav class="center-nav">
+       
+      <ul>
+           
+        <li><a href="#">Home</a></li>
+           
+        <li><a href="{{url_for('about')}}">About</a></li>
+           
+        <li><a href="#">Explore more</a></li>
+           
+        <li><a href="#">Settings</a></li>
+         
+      </ul>
+    </nav>
+
+    <div class="stage">
+      <!-- MAP -->
+      <section class="map-wrap">
+        <div id="map" role="application" aria-label="Map"></div>
+      </section>
+
+      <!-- RIGHT RAIL (collapsed) + PANEL (expanded) -->
+      <aside id="hud" class="hud">
+        <!-- COLLAPSED RAIL -->
+        <div class="rail">
+          <button
+            id="hudToggle"
+            class="rail-tab"
+            aria-label="Open Control Panel"
+            aria-expanded="false"
+          >
+            ☰
+          </button>
+          <div class="rail-icons">
+            <button class="rail-icon" data-open="search" title="Search">
+              🔎
+            </button>
+            <button class="rail-icon" data-open="categories" title="Categories">
+              ✨
+            </button>
+            <button class="rail-icon" data-open="modes" title="Modes">
+              ⚙️
+            </button>
+            <button class="rail-icon" data-open="status" title="Status">
+              💡
+            </button>
+          </div>
+        </div>
+
+        <!-- EXPANDING PANEL -->
+        <div
+          class="panel"
+          role="dialog"
+          aria-modal="false"
+          aria-label="Controls"
+        >
+          <header class="panel-header">
+            <div class="brand">
+              <span class="logo-dot"></span>
+              <span class="brand-text">NAV<span class="accent">HUD</span></span>
+            </div>
+            <button id="hudClose" class="close-btn" aria-label="Close">
+              ✕
+            </button>
+          </header>
+
+          <div class="panel-scroll">
+            <section class="block" id="blk-search">
+              <label class="label">Search</label>
+              <input
+                id="search"
+                class="hud-input"
+                placeholder="Search places (e.g., 'hospital near Andheri')"
+              />
+            </section>
+
+            <section class="block" id="blk-categories">
+              <label class="label">Quick Categories</label>
+              <div class="chip-row">
+                <button class="chip" data-cat="hospital">Hospitals</button>
+                <button class="chip" data-cat="atm">ATMs</button>
+                <button class="chip" data-cat="fuel">Fuel</button>
+              </div>
+            </section>
+
+            <section class="block" id="blk-modes">
+              <label class="label">Mode</label>
+              <div class="mode-row">
+                <button
+                  class="mode-btn active"
+                  data-mode="driving"
+                  title="Driving"
+                >
+                  🚗
+                </button>
+                <button class="mode-btn" data-mode="walking" title="Walking">
+                  🚶
+                </button>
+                <button class="mode-btn" data-mode="cycling" title="Cycling">
+                  🚴
+                </button>
+              </div>
+            </section>
+
+            <section class="block" id="blk-status">
+              <label class="label">Status</label>
+              <div class="hud-card">
+                <div class="pill">
+                  <span class="pill-label">SYSTEM</span>
+                  <span id="statusText" class="pill-value">HUD Online</span>
+                </div>
+              </div>
+            </section>
+          </div>
+        </div>
+      </aside>
+    </div>
+
+    <!-- Leaflet JS -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <!-- App JS -->
+    <script src="{{ url_for('static', filename='js/map.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
   </body>
 </html>

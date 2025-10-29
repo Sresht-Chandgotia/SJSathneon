@@ -10,3 +10,4 @@ A search bar to find points of interest without having
 to manually place the locator pin.
 Realtime geolocation updating as the user moves
 along the route
+Flask==3.0.3

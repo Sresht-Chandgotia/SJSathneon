@@ -1,0 +1,467 @@
+/* =========================
+   Futuristic HUD – App CSS
+   ========================= */
+
+/* ---- Theme tokens ---- */
+:root {
+  --bg: #060a12;
+  --panel: rgba(10, 16, 30, 0.607);
+  --panel-border: rgba(0, 243, 255, 0.35);
+  --text: #e6f0ff;
+  --muted: #9fb4cf;
+  --accent: #00f3ff;
+  --accent-2: #b769ff;
+  --glow: 0 0 12px var(--accent), 0 0 28px rgba(0, 243, 255, 0.35);
+  --radius: 16px;
+}
+
+body.theme-dark {
+  margin: 0;
+  background: radial-gradient(
+    1200px 800px at 70% 20%,
+    #0a1324 0%,
+    #060a12 48%,
+    #04070f 100%
+  );
+  color: var(--text);
+  font-family: "Inter", system-ui, -apple-system, Segoe UI, Roboto, Arial,
+    sans-serif;
+}
+
+.brand-text {
+  font-family: "Orbitron", sans-serif;
+  font-weight: 800;
+  letter-spacing: 1px;
+}
+.accent {
+  color: var(--accent);
+  text-shadow: var(--glow);
+}
+
+/* ---- Stage & Map ---- */
+.stage {
+  position: relative;
+  height: 100vh;
+  width: 100%;
+  overflow: hidden;
+}
+
+/* leave space only for the right rail; the panel overlays the map */
+.map-wrap {
+  position: absolute;
+  inset: 0 96px 0 0;
+}
+#map {
+  height: 100%;
+  width: 100%;
+}
+
+/* Keep Leaflet below overlays */
+.leaflet-container {
+  z-index: 1;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  background: transparent; /* let map show behind */
+}
+
+/* =========================
+   HUD: Right Rail + Panel
+   ========================= */
+
+/* Rail column container */
+.hud {
+  position: absolute;
+  top: 0;
+  right: 0;
+  height: 100%;
+  width: 96px; /* thicker rail */
+  z-index: 6000; /* above map */
+}
+
+/* Vertical rail */
+.rail {
+  position: absolute;
+  inset: 0;
+  width: 96px;
+  background: linear-gradient(
+    180deg,
+    rgba(10, 16, 30, 0.9),
+    rgba(10, 16, 30, 0.6)
+  );
+  border-left: 1px solid var(--panel-border);
+  box-shadow: -6px 0 24px rgba(0, 0, 0, 0.4), 0 0 18px rgba(0, 243, 255, 0.08);
+  backdrop-filter: blur(8px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 10px;
+}
+
+/* Rail buttons */
+.rail-tab,
+.rail-icon {
+  width: 56px;
+  height: 56px;
+  border-radius: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  color: #fff;
+  cursor: pointer;
+  background: rgba(255, 255, 255, 0.08);
+  transition: transform 0.15s, box-shadow 0.15s, background 0.15s;
+}
+.rail-tab {
+  border-color: var(--panel-border);
+  background: rgba(0, 243, 255, 0.1);
+  box-shadow: var(--glow);
+}
+.rail-icon:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--glow);
+  background: rgba(255, 255, 255, 0.12);
+}
+
+/* Expanding control panel (overlays map) */
+.panel {
+  position: fixed;
+  top: 0;
+  right: 96px; /* sits just to the left of the rail */
+  height: 100vh;
+  width: min(480px, 38vw);
+  background: var(--panel);
+  border-left: 1px solid var(--panel-border);
+  box-shadow: -12px 0 40px rgba(0, 0, 0, 0.45), 0 0 26px rgba(0, 243, 255, 0.12);
+  backdrop-filter: blur(10px);
+  overflow: hidden;
+
+  /* hidden by default */
+  transform: translateX(110%);
+  opacity: 0;
+  pointer-events: none;
+  transition: transform 0.28s ease, opacity 0.2s ease;
+  z-index: 7000; /* above rail and map */
+}
+.hud.expanded .panel {
+  transform: translateX(0);
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* Panel header */
+.panel-header {
+  padding: 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.logo-dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: radial-gradient(circle, var(--accent) 0%, #0080ff 70%);
+  box-shadow: var(--glow);
+  animation: pulse 2.2s ease-in-out infinite;
+}
+.close-btn {
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.06);
+  color: #fff;
+  cursor: pointer;
+}
+
+/* Panel body */
+.panel-scroll {
+  height: calc(100% - 64px);
+  overflow: auto;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  scrollbar-width: thin;
+}
+
+/* Blocks & form controls */
+.block {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.label {
+  font: 700 11px "Orbitron", sans-serif;
+  letter-spacing: 1px;
+  color: var(--muted);
+}
+.hud-input {
+  width: 100%;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: var(--text);
+  font: 600 14px/1.2 "Inter", sans-serif;
+  padding: 10px 12px;
+  border-radius: 12px;
+  transition: box-shadow 0.2s, border-color 0.2s, background 0.2s;
+}
+.hud-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(0, 243, 255, 0.15), 0 0 20px rgba(0, 243, 255, 0.1);
+  background: rgba(255, 255, 255, 0.1);
+}
+
+/* Chips & mode buttons */
+.chip-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.chip {
+  font: 700 12px "Orbitron", sans-serif;
+  letter-spacing: 0.5px;
+  color: var(--text);
+  background: rgba(0, 243, 255, 0.08);
+  border: 1px solid rgba(0, 243, 255, 0.35);
+  border-radius: 999px;
+  padding: 8px 10px;
+  transition: transform 0.15s, box-shadow 0.15s, background 0.15s;
+}
+.chip:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--glow);
+  background: rgba(0, 243, 255, 0.12);
+}
+
+.mode-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.mode-btn {
+  width: 42px;
+  height: 38px;
+  border-radius: 12px;
+  background: rgba(168, 85, 247, 0.12);
+  border: 1px solid rgba(168, 85, 247, 0.35);
+  color: #fff;
+  font-size: 18px;
+  transition: box-shadow 0.15s, transform 0.15s, background 0.15s;
+}
+.mode-btn.active,
+.mode-btn:hover {
+  box-shadow: 0 0 14px rgba(168, 85, 247, 0.45);
+  background: rgba(168, 85, 247, 0.18);
+}
+
+/* Status pill/card */
+.hud-card {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  padding: 10px;
+}
+.pill {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+}
+.pill-label {
+  font: 700 10px "Orbitron", sans-serif;
+  letter-spacing: 1px;
+  color: var(--muted);
+}
+.pill-value {
+  font: 800 16px "Orbitron", sans-serif;
+  color: var(--accent);
+  text-shadow: var(--glow);
+}
+
+/* ---- Animations ---- */
+@keyframes pulse {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.2);
+    opacity: 0.85;
+  }
+}
+
+/* =========================
+   Responsive
+   ========================= */
+@media (max-width: 980px) {
+  .map-wrap {
+    inset: 0;
+  } /* map takes full width */
+  .hud {
+    width: auto;
+    right: 8px;
+    top: 8px;
+  } /* floating rail on top */
+  .rail {
+    position: static;
+    width: auto;
+    border-radius: 14px;
+  }
+  .panel {
+    right: 8px;
+    width: min(92vw, 480px);
+  } /* overlay panel */
+}
+
+/* (Optional) custom scrollbars for WebKit */
+.panel-scroll::-webkit-scrollbar {
+  width: 8px;
+}
+.panel-scroll::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+}
+
+/* About Page Content Styling */
+.about-content {
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 2rem;
+  text-align: center;
+}
+
+/* Ensure map fills entire viewport and nav floats cleanly */
+html,
+body {
+  height: 100%;
+  background: transparent !important;
+  overflow: hidden;
+}
+
+#map {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 1;
+}
+
+/* Navigation Bar Styling */
+/* Centered Glass Navigation Bar */
+.center-nav {
+  position: fixed;
+  top: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 50%;
+  height: 5%;
+  background: rgba(255, 255, 255, 0.18);
+  backdrop-filter: blur(14px) saturate(150%);
+  -webkit-backdrop-filter: blur(14px) saturate(150%);
+  border-radius: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
+  z-index: 1000;
+  padding: 0.6rem 1.2rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.3s ease;
+}
+
+/* Navigation list */
+.center-nav ul {
+  list-style: none;
+  display: flex;
+  justify-content: space-around;
+  align-items: center;
+  margin: 0;
+  padding: 0;
+  width: 100%;
+}
+
+/* Nav links */
+.center-nav a {
+  color: #000;
+  font-family: "Orbitron", sans-serif;
+  font-weight: 600;
+  text-decoration: none;
+  letter-spacing: 0.05em;
+  transition: all 0.3s ease;
+  line-height: 1;
+  padding-top: 2px;
+}
+
+.center-nav a:hover {
+  color: #0077ff;
+  text-shadow: 0 0 6px rgba(0, 119, 255, 0.4);
+}
+
+/* For light/dark background detection (JS toggles these) */
+.nav-light a {
+  color: #111 !important;
+}
+
+.nav-dark a {
+  color: #fff !important;
+}
+
+/* ============================ */
+/*        RESPONSIVENESS        */
+/* ============================ */
+
+@media (max-width: 1024px) {
+  .center-nav {
+    width: 70%;
+    padding: 0.5rem 1rem;
+  }
+}
+
+@media (max-width: 768px) {
+  .center-nav {
+    width: 90%;
+    top: 15px;
+    padding: 0.5rem 0.8rem;
+  }
+
+  .center-nav ul {
+    justify-content: space-between;
+  }
+
+  .center-nav a {
+    font-size: 0.9rem;
+    letter-spacing: 0.03em;
+  }
+}
+
+@media (max-width: 500px) {
+  .center-nav {
+    width: 95%;
+    height: auto;
+    flex-direction: column;
+    padding: 0.6rem;
+    border-radius: 16px;
+  }
+
+  .center-nav ul {
+    flex-direction: column;
+    gap: 0.4rem;
+  }
+
+  .center-nav a {
+    font-size: 0.85rem;
+  }
+}
