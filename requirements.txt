@@ -1,0 +1,12 @@
+Participants must create a browser based navigation app
+that tracks the user’s live geolocation and finds routes to
+a nearby point of interest (such as hospitals, ATMs, petrol
+pumps).
+Features to Include:
+An interactive map where the route is displayed.
+The ability to place a locator pin on the map to find the
+route.
+A search bar to find points of interest without having
+to manually place the locator pin.
+Realtime geolocation updating as the user moves
+along the route
