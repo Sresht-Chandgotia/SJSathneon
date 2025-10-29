@@ -68,40 +68,30 @@ body {
 }
 
 /* =========================
-   HUD: Right Rail + Panel
+   HUD Sidebar — Unified Frosted Glass Design
    ========================= */
 
-/* Rail column container */
-.hud {
-  position: absolute;
-  top: 0;
-  right: 0;
-  height: 100%;
-  width: 96px; /* thicker rail */
-  z-index: 6000; /* above map */
-}
-
-/* Vertical rail */
+/* Side Rail */
 .rail {
   position: absolute;
   inset: 0;
   width: 96px;
-  background: linear-gradient(
-    180deg,
-    rgba(10, 16, 30, 0.9),
-    rgba(10, 16, 30, 0.6)
-  );
-  border-left: 1px solid var(--panel-border);
-  box-shadow: -6px 0 24px rgba(0, 0, 0, 0.4), 0 0 18px rgba(0, 243, 255, 0.08);
-  backdrop-filter: blur(8px);
+  background: rgba(17, 25, 40, 0.72); /* same as nav bar glass */
+  backdrop-filter: blur(16px) saturate(180%);
+  -webkit-backdrop-filter: blur(16px) saturate(180%);
+  border-left: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: -6px 0 24px rgba(0, 0, 0, 0.35);
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 14px;
   padding: 14px 10px;
+  border-top-left-radius: 20px;
+  border-bottom-left-radius: 20px;
+  z-index: 6000;
 }
 
-/* Rail buttons */
+/* Buttons / Icons */
 .rail-tab,
 .rail-icon {
   width: 56px;
@@ -110,22 +100,28 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 22px;
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  color: #fff;
-  cursor: pointer;
+  font-size: 24px;
+  color: rgba(255, 255, 255, 0.85);
   background: rgba(255, 255, 255, 0.08);
-  transition: transform 0.15s, box-shadow 0.15s, background 0.15s;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  cursor: pointer;
+  transition: all 0.25s ease;
 }
-.rail-tab {
-  border-color: var(--panel-border);
-  background: rgba(0, 243, 255, 0.1);
-  box-shadow: var(--glow);
-}
-.rail-icon:hover {
+
+.rail-icon:hover,
+.rail-tab:hover {
+  background: rgba(0, 243, 255, 0.18);
+  color: var(--accent);
+  box-shadow: 0 0 12px rgba(0, 243, 255, 0.35);
   transform: translateY(-1px);
-  box-shadow: var(--glow);
-  background: rgba(255, 255, 255, 0.12);
+}
+
+/* Active tab */
+.rail-tab.active {
+  background: rgba(0, 243, 255, 0.25);
+  border-color: rgba(0, 243, 255, 0.4);
+  box-shadow: 0 0 18px rgba(0, 243, 255, 0.45);
+  color: var(--accent);
 }
 
 /* Expanding control panel (overlays map) */
@@ -369,8 +365,8 @@ body {
   width: 50%;
   height: 5%;
   background: rgba(255, 255, 255, 0.18);
-  backdrop-filter: blur(14px) saturate(150%);
-  -webkit-backdrop-filter: blur(14px) saturate(150%);
+  backdrop-filter: blur(14px) saturate(180%);
+  -webkit-backdrop-filter: blur(14px) saturate(180%);
   border-radius: 20px;
   border: 1px solid rgba(255, 255, 255, 0.35);
   box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
@@ -464,4 +460,275 @@ body {
   .center-nav a {
     font-size: 0.85rem;
   }
+}
+
+/* When HUD is open, shift nav slightly to the left */
+body.hud-open .center-nav {
+  transform: translateX(-85%) !important; /* moves nav left from center */
+  transition: transform 0.4s ease;
+}
+
+/* Optional: add a subtle glow or opacity change for visual feedback */
+body.hud-open .center-nav {
+  opacity: 0.95;
+}
+
+/* === Frosted Glass Right Sidebar + Panel (Final Version) === */
+
+/* Keep sidebar on the right */
+.hud {
+  position: absolute;
+  top: 0;
+  right: 0; /* ✅ stays on the right side */
+  height: 100%;
+  width: 96px;
+  z-index: 6000;
+}
+
+/* Frosted glass vertical rail */
+.rail {
+  position: absolute;
+  inset: 0;
+  width: 96px;
+  background: rgba(255, 255, 255, 0.18);
+  backdrop-filter: blur(14px) saturate(150%);
+  -webkit-backdrop-filter: blur(14px) saturate(150%);
+  border-left: 1px solid rgba(255, 255, 255, 0.35);
+  box-shadow: -6px 0 30px rgba(0, 0, 0, 0.15);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 10px;
+}
+
+/* Rail buttons on frosted glass */
+.rail-tab,
+.rail-icon {
+  width: 56px;
+  height: 56px;
+  border-radius: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  color: #222;
+  cursor: pointer;
+  background: rgba(255, 255, 255, 0.5);
+  transition: all 0.2s ease;
+}
+.rail-icon:hover,
+.rail-tab:hover {
+  background: rgba(255, 255, 255, 0.7);
+  transform: translateY(-2px);
+}
+
+/* Frosted glass expanding panel */
+.panel {
+  position: fixed;
+  top: 0;
+  right: 96px; /* ✅ to the left of the rail */
+  height: 100vh;
+  width: min(480px, 38vw);
+  background: rgba(255, 255, 255, 0.18);
+  border-left: 1px solid rgba(255, 255, 255, 0.35);
+  box-shadow: -12px 0 30px rgba(0, 0, 0, 0.15);
+  backdrop-filter: blur(14px) saturate(180%);
+  -webkit-backdrop-filter: blur(14px) saturate(180%);
+  overflow: hidden;
+
+  transform: translateX(110%);
+  opacity: 0;
+  pointer-events: none;
+  transition: transform 0.3s ease, opacity 0.25s ease;
+  z-index: 7000;
+}
+.hud.expanded .panel {
+  transform: translateX(0);
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* Darker text for light glass background */
+.panel,
+.panel .label,
+.panel .hud-input,
+.panel .brand-text,
+.panel .pill-label,
+.panel .pill-value {
+  color: #111;
+}
+
+/* Adjust chips (Hospitals / ATMs / Fuel) */
+.chip {
+  color: #111 !important; /* ✅ fix white text */
+  background: rgba(255, 255, 255, 0.6);
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  transition: all 0.2s ease;
+}
+.chip:hover {
+  background: rgba(255, 255, 255, 0.8);
+  box-shadow: 0 0 8px rgba(0, 119, 255, 0.2);
+  transform: translateY(-2px);
+}
+
+/* Inputs + cards on frosted glass */
+.hud-input {
+  background: rgba(255, 255, 255, 0.6);
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  color: #111;
+}
+.hud-card {
+  background: rgba(255, 255, 255, 0.5);
+  border: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+/* Accent color tweak */
+.accent {
+  color: #0077ff;
+  text-shadow: 0 0 8px rgba(0, 119, 255, 0.3);
+}
+
+/* === Close Icon (×) - Darker for Frosted Glass UI === */
+.close-btn,
+.close-icon,
+.panel-close,
+.hud-close {
+  color: #111 !important; /* Dark grey/black for visibility */
+  opacity: 0.9;
+  transition: color 0.2s ease, transform 0.2s ease;
+}
+
+.close-btn:hover,
+.close-icon:hover,
+.panel-close:hover,
+.hud-close:hover {
+  color: #000 !important;
+  transform: rotate(90deg);
+}
+
+.panel-section {
+  border-top: 1px solid rgba(0, 0, 0, 0.08);
+  padding-top: 16px;
+}
+
+.panel h2 {
+  font-size: 18px;
+  font-weight: 600;
+  color: #111;
+  margin-bottom: 6px;
+}
+
+.panel .chip {
+  font-size: 14px;
+  padding: 8px 14px;
+  border-radius: 12px;
+}
+
+.panel p,
+.panel .label {
+  font-size: 14px;
+  color: #222;
+  line-height: 1.5;
+}
+
+.rail-icon {
+  font-size: 24px;
+  width: 56px;
+  height: 56px;
+  border-radius: 16px;
+}
+
+.rail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center; /* centers vertically */
+  gap: 18px; /* consistent vertical spacing */
+  padding: 16px 10px;
+}
+.panel-content {
+  display: flex;
+  flex-direction: column;
+  gap: 20px; /* spacing between groups */
+  padding: 24px;
+}
+
+.rail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 32px; /* 🌟 increase spacing */
+  padding: 24px 0;
+}
+
+.rail-icon {
+  margin-bottom: 10px;
+}
+
+.rail-icon:hover {
+  box-shadow: 0 0 12px rgba(0, 243, 255, 0.4);
+  transform: translateY(-2px);
+}
+
+/* === Frosted Glass Blue Tint (Improved Readability) === */
+.rail,
+.panel {
+  background: rgba(30, 45, 70, 0.4); /* deeper blue-gray for contrast */
+  backdrop-filter: blur(14px) saturate(150%);
+  -webkit-backdrop-filter: blur(14px) saturate(150%);
+  border: 1px solid rgba(120, 180, 255, 0.25);
+  box-shadow: 0 4px 25px rgba(0, 60, 130, 0.2);
+}
+
+/* === Text and Icon Color System === */
+
+/* Primary Text */
+.panel,
+.panel .label,
+.panel .pill-label {
+  color: #dce7f5 !important; /* soft steel blue-white */
+}
+
+/* Headings (like “Quick Categories”, “Status”) */
+.panel h3,
+.panel .section-title {
+  color: #a8c8ff !important; /* light azure for clarity */
+  font-weight: 600;
+}
+
+/* Buttons / Chips */
+.panel .chip,
+.panel .mode-btn,
+.panel .pill-value {
+  color: #1b2f4d !important; /* dark navy text */
+  background: rgba(255, 255, 255, 0.65);
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  font-weight: 600;
+  transition: all 0.2s ease;
+}
+
+.panel .chip:hover,
+.panel .mode-btn:hover {
+  background: rgba(0, 160, 255, 0.2);
+  color: #00baff !important;
+  border-color: rgba(0, 160, 255, 0.4);
+}
+
+/* Emoji icons / inline icons */
+.panel .mode-btn span,
+.rail-icon {
+  font-size: 1.3rem;
+  color: #cfe5ff !important;
+  filter: drop-shadow(0 0 3px rgba(0, 150, 255, 0.3));
+}
+
+/* Close / action icons */
+.close-btn {
+  color: #001a33 !important;
+}
+.close-btn:hover {
+  color: #0077ff !important;
 }
