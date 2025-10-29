@@ -19,6 +19,12 @@
       href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
     />
 
+    <!-- Leaflet Routing Machine (added for routing) -->
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.css"
+    />
+
     <link
       rel="stylesheet"
       href="{{ url_for('static', filename='css/app.css') }}"
@@ -26,17 +32,17 @@
   </head>
   <body class="theme-dark">
     <nav class="center-nav">
-       
+       
       <ul>
-           
+           
         <li><a href="#">Home</a></li>
-           
+           
         <li><a href="{{url_for('about')}}">About</a></li>
-           
+           
         <li><a href="#">Explore more</a></li>
-           
+           
         <li><a href="#">Settings</a></li>
-         
+         
       </ul>
     </nav>
 
@@ -145,6 +151,9 @@
 
     <!-- Leaflet JS -->
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <!-- Leaflet Routing Machine (added for routing) -->
+    <script src="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.js"></script>
 
     <!-- App JS -->
     <script src="{{ url_for('static', filename='js/map.js') }}"></script>

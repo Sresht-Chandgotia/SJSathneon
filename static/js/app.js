@@ -74,8 +74,24 @@ document.addEventListener("DOMContentLoaded", () => {
       const lat = parseFloat(place.lat);
       const lon = parseFloat(place.lon);
 
+      // keep clearing any previous simple markers (but not the destination pin)
+      // if you want to also clear the destination on new searches, call window.__NAV__.clearDestination()
       clearMarkers();
 
+      // Use the same destination marker (so click-created marker and search-created marker are identical)
+      if (window.__NAV__ && typeof window.__NAV__.setDestination === "function") {
+        const popupHtml = `<strong>${place.display_name}</strong>`;
+        // setDestination accepts an object/LatLng
+        window.__NAV__.setDestination({ lat, lng: lon }, popupHtml);
+
+        // center map to the searched place
+        map.setView([lat, lon], 15);
+
+        showPopup(`Showing results for "${query}"`);
+        return;
+      }
+
+      // fallback (shouldn't happen) — create simple marker in markersLayer
       L.marker([lat, lon])
         .addTo(markersLayer)
         .bindPopup(`<strong>${place.display_name}</strong>`)
@@ -88,6 +104,7 @@ document.addEventListener("DOMContentLoaded", () => {
       showPopup("Error while searching. Check console for details.");
     }
   }
+
 
   // --- CATEGORY SEARCH + POPUPS ---
   const categoryButtons = document.querySelectorAll(".chip");
@@ -192,6 +209,9 @@ document.addEventListener("DOMContentLoaded", () => {
       showPopup("Error fetching data. Please try again later.", 4000);
     }
   }
+
+  
+  
 });
 
 //Nav bar upgrade
