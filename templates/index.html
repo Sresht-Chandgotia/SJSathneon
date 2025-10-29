@@ -135,15 +135,40 @@
               </div>
             </section>
 
-            <section class="block" id="blk-status">
-              <label class="label">Status</label>
-              <div class="hud-card">
-                <div class="pill">
-                  <span class="pill-label">SYSTEM</span>
-                  <span id="statusText" class="pill-value">HUD Online</span>
-                </div>
+            
+
+
+          <section class="block" id="blk-status">
+          <label class="label">Status</label>
+          <div class="hud-card">
+            <div class="pill">
+              <span class="pill-label">SYSTEM</span>
+              <span id="statusText" class="pill-value">HUD Online</span>
+            </div>
+
+            <!-- Clear destination button -->
+              <div style="margin-top:12px; display:flex; gap:8px; align-items:center;">
+                <button id="clearDestinationBtn" class="chip" title="Remove destination and route">
+                  Clear destination
+                </button>
               </div>
-            </section>
+            </div>
+
+            <!-- ROUTE INFO (populated by JS when a route is found) -->
+            <div style="margin-top:10px; display:flex; gap:10px; align-items:center; font-family: Inter, sans-serif;">
+              <div style="font-size:13px; color:var(--muted)">
+                <div style="font-size:11px; letter-spacing:1px; color:var(--muted)">DISTANCE</div>
+                <div id="routeDistance" style="font-weight:700; color:var(--accent)">—</div>
+              </div>
+              <div style="font-size:13px; color:var(--muted)">
+                <div style="font-size:11px; letter-spacing:1px; color:var(--muted)">ETA</div>
+                <div id="routeEta" style="font-weight:700; color:var(--accent)">—</div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+
           </div>
         </div>
       </aside>
