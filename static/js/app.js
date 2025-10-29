@@ -1,35 +1,195 @@
-// Expandable rail/panel logic + map resize
-const hud = document.getElementById('hud');
-const btnOpen = document.getElementById('hudToggle');
-const btnClose = document.getElementById('hudClose');
-const statusText = document.getElementById('statusText');
+document.addEventListener("DOMContentLoaded", () => {
+  // --- HUD / SIDEBAR LOGIC ---
+  const hud = document.getElementById("hud");
+  const btnOpen = document.getElementById("hudToggle");
+  const btnClose = document.getElementById("hudClose");
+  const statusText = document.getElementById("statusText");
 
-if (statusText) statusText.textContent = 'HUD Online';
+  if (statusText) statusText.textContent = "HUD Online";
 
-function setExpanded(expanded) {
-  if (!hud) return;
-  hud.classList.toggle('expanded', expanded);
-  if (btnOpen) btnOpen.setAttribute('aria-expanded', String(expanded));
-  // Nudge Leaflet to recalc sizes after the transition
-  const map = window.__NAV__?.map;
-  if (map) setTimeout(() => map.invalidateSize(), 320);
-}
+  function setExpanded(expanded) {
+    if (!hud) return;
+    hud.classList.toggle("expanded", expanded);
+    if (btnOpen) btnOpen.setAttribute("aria-expanded", String(expanded));
+    const map = window.__NAV__?.map;
+    if (map) setTimeout(() => map.invalidateSize(), 320);
+  }
 
-btnOpen?.addEventListener('click', () => setExpanded(true));
-btnClose?.addEventListener('click', () => setExpanded(false));
+  btnOpen?.addEventListener("click", () => setExpanded(true));
+  btnClose?.addEventListener("click", () => setExpanded(false));
 
-// Rail icon focus → auto open specific section (optional UX sugar)
-document.querySelectorAll('.rail-icon').forEach(el => {
-  el.addEventListener('click', () => setExpanded(true));
-});
+  document.querySelectorAll(".rail-icon").forEach((el) => {
+    el.addEventListener("click", () => setExpanded(true));
+  });
 
-// Close panel with Escape
-document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape') setExpanded(false);
-});
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") setExpanded(false);
+  });
 
-// Reflow map on window resize
-window.addEventListener('resize', () => {
-  const map = window.__NAV__?.map;
-  if (map) map.invalidateSize();
+  window.addEventListener("resize", () => {
+    const map = window.__NAV__?.map;
+    if (map) map.invalidateSize();
+  });
+
+  // --- SEARCH BAR FUNCTIONALITY ---
+  const searchInput = document.getElementById("search");
+
+  if (searchInput) {
+    searchInput.addEventListener("keydown", async (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        const query = searchInput.value.trim();
+        if (!query) return showPopup("Please type a location to search!");
+        await searchPlace(query);
+      }
+    });
+  }
+
+  async function searchPlace(query) {
+    const map = window.__NAV__?.map;
+    const markersLayer = window.__NAV__?.markersLayer;
+    const clearMarkers = window.__NAV__?.clearMarkers;
+
+    if (!map || !markersLayer || !clearMarkers) {
+      console.error("Map not initialized yet.");
+      showPopup("Map is still loading. Try again in a moment!");
+      return;
+    }
+
+    showPopup(`Searching for "${query}"...`);
+
+    try {
+      const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(
+        query
+      )}`;
+      const res = await fetch(url);
+      const data = await res.json();
+
+      if (!data || data.length === 0) {
+        showPopup("No results found!");
+        return;
+      }
+
+      const place = data[0];
+      const lat = parseFloat(place.lat);
+      const lon = parseFloat(place.lon);
+
+      clearMarkers();
+
+      L.marker([lat, lon])
+        .addTo(markersLayer)
+        .bindPopup(`<strong>${place.display_name}</strong>`)
+        .openPopup();
+
+      map.setView([lat, lon], 15);
+      showPopup(`Showing results for "${query}"`);
+    } catch (err) {
+      console.error("Search failed:", err);
+      showPopup("Error while searching. Check console for details.");
+    }
+  }
+
+  // --- CATEGORY SEARCH + POPUPS ---
+  const categoryButtons = document.querySelectorAll(".chip");
+
+  // Create popup once
+  const popupBox = document.createElement("div");
+  popupBox.id = "hud-popup";
+  Object.assign(popupBox.style, {
+    position: "fixed",
+    bottom: "20px",
+    left: "50%",
+    transform: "translateX(-50%)",
+    background: "rgba(30, 58, 138, 0.9)",
+    color: "white",
+    padding: "10px 18px",
+    borderRadius: "8px",
+    fontFamily: "Inter, sans-serif",
+    fontSize: "14px",
+    display: "none",
+    zIndex: "1000",
+    boxShadow: "0 2px 10px rgba(0,0,0,0.3)",
+    transition: "opacity 0.3s ease",
+  });
+  document.body.appendChild(popupBox);
+
+  function showPopup(message, duration = 2500) {
+    popupBox.textContent = message;
+    popupBox.style.display = "block";
+    popupBox.style.opacity = "1";
+    setTimeout(() => {
+      popupBox.style.opacity = "0";
+      setTimeout(() => (popupBox.style.display = "none"), 300);
+    }, duration);
+  }
+
+  categoryButtons.forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const map = window.__NAV__?.map;
+      if (!map) return showPopup("Map not ready yet!");
+      const category = btn.dataset.cat;
+      const center = map.getCenter();
+      await findNearby(category, center.lat, center.lng);
+    });
+  });
+
+  async function findNearby(type, lat, lon) {
+    const map = window.__NAV__?.map;
+    const markersLayer = window.__NAV__?.markersLayer;
+    const clearMarkers = window.__NAV__?.clearMarkers;
+    if (!map || !markersLayer || !clearMarkers) return;
+
+    clearMarkers();
+    showPopup(`Searching nearby ${type}s...`);
+
+    let tag = "";
+    if (type === "hospital") tag = "amenity=hospital";
+    else if (type === "atm") tag = "amenity=atm";
+    else if (type === "fuel") tag = "amenity=fuel";
+
+    let radius = 3000; // default 3 km
+    const zoom = map.getZoom();
+    if (zoom >= 15) radius = 1500;
+    else if (zoom >= 13) radius = 2500;
+    else if (zoom >= 10) radius = 4000;
+
+    const overpassUrl = `https://overpass-api.de/api/interpreter?data=[out:json][timeout:25];
+      node[${tag}](around:${radius},${lat},${lon});
+      out;`;
+
+    try {
+      const res = await fetch(overpassUrl);
+      const data = await res.json();
+
+      if (!data.elements || data.elements.length === 0) {
+        showPopup(
+          `No ${type}s found within ${(radius / 1000).toFixed(1)} km`,
+          4000
+        );
+        return;
+      }
+
+      data.elements.forEach((el) => {
+        if (el.lat && el.lon) {
+          L.marker([el.lat, el.lon])
+            .addTo(markersLayer)
+            .bindPopup(
+              `<strong>${
+                el.tags.name || type.toUpperCase()
+              }</strong><br>${type}`
+            );
+        }
+      });
+
+      showPopup(
+        `Found ${data.elements.length} ${type}(s) within ${(
+          radius / 1000
+        ).toFixed(1)} km`,
+        4000
+      );
+    } catch (err) {
+      console.error(err);
+      showPopup("Error fetching data. Please try again later.", 4000);
+    }
+  }
 });
