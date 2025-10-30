@@ -206,6 +206,119 @@ function addFavoriteFromPOI(poi) {
   return nowFav;
 }
 
+/* ----------------------
+   Favorite name modal (create-once)
+   ---------------------- */
+function ensureFavNameModal() {
+  if (document.getElementById("favNameModal")) return document.getElementById("favNameModal");
+
+  // create modal container
+  const modal = document.createElement("div");
+  modal.id = "favNameModal";
+  Object.assign(modal.style, {
+    position: "fixed",
+    inset: "0",
+    display: "none",
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 12000,
+    background: "rgba(0,0,0,0.45)",
+  });
+
+  const card = document.createElement("div");
+  Object.assign(card.style, {
+    width: "min(420px, 92%)",
+    background: "linear-gradient(180deg,#fff,#f7f9fc)",
+    padding: "18px",
+    borderRadius: "12px",
+    boxShadow: "0 8px 30px rgba(2,6,23,0.5)",
+    color: "#001",
+    fontFamily: "Inter, system-ui, sans-serif"
+  });
+
+  card.innerHTML = `
+    <div style="font-weight:700;margin-bottom:8px">Save to Favorites</div>
+    <div style="font-size:13px;color:#334; margin-bottom:12px">Give this place a name you will recognise later.</div>
+    <input id="favNameInput" type="text" placeholder="Name (required)" style="width:100%;padding:10px;border-radius:8px;border:1px solid rgba(0,0,0,0.08);font-size:14px;box-sizing:border-box" />
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px">
+      <button id="favNameCancel" class="chip" style="background:#eee;color:#111;padding:8px 10px;border-radius:8px">Cancel</button>
+      <button id="favNameSave" class="chip" style="background:var(--accent);color:#001;padding:8px 10px;border-radius:8px">Save</button>
+    </div>
+    <div id="favNameErr" style="color:#c00;margin-top:8px;font-size:13px;display:none"></div>
+  `;
+
+  modal.appendChild(card);
+  document.body.appendChild(modal);
+
+  // wiring
+  const input = card.querySelector("#favNameInput");
+  const btnCancel = card.querySelector("#favNameCancel");
+  const btnSave = card.querySelector("#favNameSave");
+  const errEl = card.querySelector("#favNameErr");
+
+  function hide() {
+    modal.style.display = "none";
+    input.value = "";
+    errEl.style.display = "none";
+  }
+  function show(defaultVal = "") {
+    input.value = defaultVal || "";
+    errEl.style.display = "none";
+    modal.style.display = "flex";
+    setTimeout(() => input.focus(), 120);
+  }
+
+  btnCancel.addEventListener("click", hide);
+  btnSave.addEventListener("click", () => {
+    const v = (input.value || "").trim();
+    if (!v) {
+      errEl.textContent = "Please enter a name.";
+      errEl.style.display = "";
+      input.focus();
+      return;
+    }
+    // dispatch a custom event with the name
+    modal.dispatchEvent(new CustomEvent("favNameSave", { detail: { name: v } }));
+    hide();
+  });
+
+  // allow Enter to save, Escape to cancel
+  input.addEventListener("keydown", (ev) => {
+    if (ev.key === "Enter") { ev.preventDefault(); btnSave.click(); }
+    else if (ev.key === "Escape") { ev.preventDefault(); btnCancel.click(); }
+  });
+
+  return modal;
+}
+
+// helper to prompt for a name — returns a Promise<string|null>
+function promptFavoriteName(defaultName = "") {
+  return new Promise((resolve) => {
+    const modal = ensureFavNameModal();
+    const input = modal.querySelector("#favNameInput");
+    const onSave = (ev) => {
+      const name = ev.detail && ev.detail.name ? String(ev.detail.name) : null;
+      modal.removeEventListener("favNameSave", onSave);
+      resolve(name);
+    };
+    modal.addEventListener("favNameSave", onSave);
+    modal.style.display = "flex";
+    input.value = defaultName || "";
+    input.focus();
+    // if user clicks outside modal card, cancel
+    const onClickOutside = (ev) => {
+      if (ev.target === modal) {
+        modal.style.display = "none";
+        modal.removeEventListener("favNameSave", onSave);
+        document.removeEventListener("click", onClickOutside);
+        resolve(null);
+      }
+    };
+    setTimeout(() => document.addEventListener("click", onClickOutside), 0);
+  });
+}
+
+
 
 
 // Robust findNearby with lightweight-first queries, retries, and endpoint fallbacks
@@ -436,17 +549,50 @@ function renderNearbyItems(items, categoryType, centerLat, centerLon) {
       });
 
       const favBtn = popupEl.querySelector('button[data-action="fav"]');
-if (favBtn) favBtn.addEventListener("click", (e) => {
-  const nowFav = addFavoriteFromPOI(it);
-  favBtn.textContent = nowFav ? "★ Favorited" : "☆ Favorite";
-  // keep popup open or close as you prefer; here we keep it open
-});
+      if (favBtn) favBtn.addEventListener("click", async (e) => {
+        try {
+          // If already favorited -> remove immediately (no rename required)
+          if (isFavorite(it)) {
+            toggleFavorite(it);
+            favBtn.textContent = "☆ Favorite";
+            renderFavorites();
+            showPopup("Removed from favorites", 1400);
+            return;
+          }
 
+          // Prompt for a name before saving (promptFavoriteName returns null on cancel)
+          const suggested = it.tags && it.tags.name ? it.tags.name : "";
+          const nameInput = await promptFavoriteName(suggested);
+          if (!nameInput) {
+            // user cancelled
+            return;
+          }
+
+          // Build POI object with chosen name and save via toggleFavorite
+          const poi = {
+            id: it.id ?? `poi:${it.type}:${it.lat},${it.lon}`,
+            type: it.type || (it.tags && (it.tags.amenity || it.tags.shop)) || "place",
+            lat: it.lat,
+            lon: it.lon,
+            name: nameInput,
+            tags: it.tags || {}
+          };
+
+          const nowFav = toggleFavorite(poi);
+          favBtn.textContent = nowFav ? "★ Favorited" : "☆ Favorite";
+          renderFavorites();
+          showPopup(nowFav ? "Saved to favorites" : "Updated favorite", 1400);
+        } catch (err) {
+          console.warn("Favorite save failed:", err);
+          showPopup("Could not save favorite", 1600);
+        }
+      });
     });
 
     if (idx === 0) marker.openPopup();
   });
 }
+
 
 
 
