@@ -959,3 +959,205 @@ body {
   .center-nav.search-open .search-input-wrap { width: min(72vw, 420px); }
   .nav-search { max-width: 72vw; }
 }
+
+/* === Improve text readability for frosted glass navbar === */
+
+/* General text contrast inside the navbar */
+.center-nav,
+.center-nav .pill,
+.center-nav .mode-pill,
+.center-nav .pill-label,
+.center-nav .nav-hud-input,
+.center-nav .search-toggle {
+  color: rgba(15, 20, 35, 0.95) !important; /* deeper navy text */
+  font-weight: 600 !important;
+  text-shadow: 0 1px 2px rgba(255, 255, 255, 0.7); /* subtle light glow */
+}
+
+/* Improve label clarity */
+.center-nav .pill-label {
+  font-weight: 700 !important;
+  letter-spacing: 0.02em;
+  color: #0d172a !important;
+}
+
+/* Make icons crisper and slightly darker for readability */
+.center-nav .pill-icon,
+.center-nav .search-toggle {
+  filter: drop-shadow(0 0 3px rgba(255,255,255,0.4))
+          drop-shadow(0 0 6px rgba(0,0,0,0.2));
+}
+
+/* Input text more legible against map background */
+.center-nav .nav-hud-input {
+  font-weight: 600;
+  color: #0a1628 !important;
+  text-shadow: 0 1px 3px rgba(255,255,255,0.5);
+}
+
+/* Active mode pill text contrast */
+.center-nav .mode-pill.active {
+  color: #001933 !important;
+  font-weight: 700;
+  text-shadow: 0 1px 3px rgba(255,255,255,0.6);
+}
+
+/* When collapsed to icons only, keep icons clearly visible */
+.center-nav.search-open .pill-icon {
+  filter: drop-shadow(0 0 4px rgba(255,255,255,0.4))
+          drop-shadow(0 0 3px rgba(0,0,0,0.3));
+}
+
+/* optional: slight brightness lift for nav bar background to enhance contrast */
+.center-nav {
+  backdrop-filter: blur(14px) saturate(180%) brightness(1.15);
+  -webkit-backdrop-filter: blur(14px) saturate(180%) brightness(1.15);
+}
+
+/* ===== Fix: flexible, non-clipping expandable search ===== */
+
+/* Ensure nav allows children to overflow/expand cleanly */
+.center-nav {
+  /* keep existing visuals but allow visible overflow */
+  overflow: visible !important;
+  z-index: 1001; /* be above the map */
+  display: flex;
+  align-items: center;
+}
+
+/* Ensure left/right containers behave as flexible areas */
+.center-nav .nav-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1 1 auto;        /* left area grows */
+  min-width: 0;         /* allow children to shrink (important) */
+}
+
+.center-nav .nav-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 0 0 auto;       /* keep right area fixed size */
+  white-space: nowrap;
+}
+
+/* Make search wrapper a flex child that can grow/shrink */
+.search-input-wrap {
+  width: 0;
+  flex: 0 1 auto;
+  overflow: hidden;
+  opacity: 0;
+  transition: flex 260ms cubic-bezier(.2,.8,.2,1), opacity 160ms;
+  min-width: 0; /* vitally important to prevent flex overflow issues */
+}
+
+/* When search is opened, let it take remaining space (without overlapping nav-right) */
+.center-nav.search-open .search-input-wrap {
+  width: auto;
+  flex: 1 1 auto;                         /* grow to available space */
+  opacity: 1;
+  max-width: calc(100% - 260px);          /* reserve ~260px for pills (adjust if you have more/less) */
+}
+
+/* Keep the toggle button visible above the input while animating */
+.search-toggle {
+  position: relative;
+  z-index: 6;
+}
+
+/* Ensure input itself can shrink inside flex container */
+.center-nav .nav-hud-input {
+  width: 100%;
+  box-sizing: border-box;
+  min-width: 0;
+}
+
+/* Small responsive tweak: on narrow screens reserve less space for pills */
+@media (max-width: 980px) {
+  .center-nav.search-open .search-input-wrap {
+    max-width: calc(100% - 160px);
+  }
+}
+
+/* === Navbar refinement patch === */
+
+/* Slightly taller nav bar */
+.center-nav {
+  height: 64px !important;  /* was ~5% / ~48px before */
+  padding: 0.6rem 1.4rem !important;
+  border-radius: 24px;
+}
+
+/* Make left and right sections align vertically */
+.center-nav .nav-left,
+.center-nav .nav-right {
+  align-items: center;
+}
+
+/* Search input slightly wider (reserve less for pills) */
+.center-nav.search-open .search-input-wrap {
+  max-width: calc(100% - 220px) !important;  /* previously 260px */
+}
+
+/* Make search input taller to match nav */
+.center-nav .nav-hud-input {
+  height: 42px !important;
+  font-size: 15px;
+  padding: 8px 14px;
+  border-radius: 14px;
+}
+
+/* Keep pills vertically centered and slightly larger */
+.center-nav .pill {
+  height: 42px !important;
+  padding: 8px 14px !important;
+  font-size: 14px !important;
+  border-radius: 999px;
+}
+
+/* Icons scale up slightly for better proportion */
+.center-nav .pill-icon {
+  font-size: 20px !important;
+}
+
+/* Reduce excess gap between search and pills */
+.center-nav .nav-right {
+  gap: 8px !important;
+}
+
+/* --- Autocomplete dropdown visibility fix --- */
+
+/* Ensure suggestions dropdown appears above blurred navbar */
+.hud-search-wrapper {
+  position: relative !important;
+  z-index: 5000 !important;
+}
+
+/* Move autocomplete slightly down so it doesn't overlap the nav blur */
+.autocomplete-list {
+  top: calc(100% + 6px) !important;
+  z-index: 9999 !important;
+  background: rgba(5, 8, 20, 0.98);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+  border-radius: 10px;
+}
+
+/* Improve contrast for suggestion text */
+.autocomplete-item {
+  color: #f8f9fb;
+  font-weight: 500;
+}
+.autocomplete-title {
+  font-weight: 700;
+  color: #fff;
+}
+.autocomplete-sub {
+  color: #aeb7c4;
+}
+
+/* Make sure nav bar blur doesn’t clip dropdown */
+.center-nav {
+  overflow: visible !important;
+}

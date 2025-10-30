@@ -705,30 +705,28 @@ function renderNearbyItems(items, categoryType, centerLat, centerLon) {
     if (idx === 0) marker.openPopup();
   });
 }
-
   // ==============================
-  // Advanced Search + Autocomplete
+  // Advanced Search + Autocomplete (robust, handles multiple #search inputs)
   // ==============================
-  // This block replaces the simple Enter-key search and provides suggestions, keyboard navigation,
-  // debounce + abort, caching, and uses window.__NAV__.setDestination(...) when a suggestion is chosen.
-  (function setupAdvancedSearch() {
-    const searchInput = document.getElementById("search");
+  (function setupAdvancedSearchRobust() {
+    // pick the most appropriate input:
+    // prefer the navbar search (inside .center-nav) if present, otherwise use the first #search
+    let searchInput = document.querySelector('.center-nav #search') || document.querySelector('#blk-search input#search') || document.querySelector('#search');
     if (!searchInput) return;
 
-    // Wrap search input in container to position dropdown
-    let wrapper = searchInput.parentElement;
-    if (!wrapper.classList.contains("hud-search-wrapper")) {
-      const w = document.createElement("div");
-      w.className = "hud-search-wrapper";
-      searchInput.parentElement.insertBefore(w, searchInput);
-      w.appendChild(searchInput);
-      wrapper = w;
-    }
-
-    const list = document.createElement("div");
-    list.className = "autocomplete-list";
-    list.style.display = "none";
-    wrapper.appendChild(list);
+    // create a dropdown element attached to body to avoid clipping by frosted nav
+    const dropdown = document.createElement('div');
+    dropdown.className = 'autocomplete-list';
+    Object.assign(dropdown.style, {
+      display: 'none',
+      position: 'fixed',
+      zIndex: '16000',
+      boxSizing: 'border-box',
+      maxHeight: '360px',
+      overflowY: 'auto',
+      minWidth: '220px'
+    });
+    document.body.appendChild(dropdown);
 
     const loadingNode = document.createElement("div");
     loadingNode.className = "autocomplete-loading";
@@ -740,56 +738,72 @@ function renderNearbyItems(items, categoryType, centerLat, centerLon) {
     let debounceTimer = null;
     let lastQuery = "";
     let abortController = null;
-    const cache = new Map();
     let focusedIndex = -1;
     let currentSuggestions = [];
 
-    function showList() { list.style.display = ""; }
-    function hideList() { list.style.display = "none"; focusedIndex = -1; updateSelection(); }
+    function showDropdown() { dropdown.style.display = ''; }
+    function hideDropdown() { dropdown.style.display = 'none'; focusedIndex = -1; updateSelection(); }
 
-    function renderSuggestions(items) {
-      list.innerHTML = "";
-      if (!items || items.length === 0) {
-        list.appendChild(emptyNode);
-        showList();
-        return;
+    function positionDropdown() {
+      try {
+        const inRect = searchInput.getBoundingClientRect();
+        // place slightly below input
+        dropdown.style.left = Math.round(inRect.left) + 'px';
+        dropdown.style.top = Math.round(inRect.bottom + 6) + 'px';
+        dropdown.style.width = Math.max(180, Math.round(inRect.width)) + 'px';
+      } catch (e) {
+        // ignore
       }
-      items.forEach((it, idx) => {
-        const el = document.createElement("div");
-        el.className = "autocomplete-item";
-        el.setAttribute("role", "option");
-        el.setAttribute("data-idx", idx);
-        el.tabIndex = -1;
-
-        const title = document.createElement("div");
-        title.className = "autocomplete-title";
-        title.innerHTML = it.display_name.split(",")[0];
-        const sub = document.createElement("div");
-        sub.className = "autocomplete-sub";
-        sub.textContent = it.address ? composeAddress(it.address) : (it.display_name || "");
-        el.appendChild(title);
-        el.appendChild(sub);
-
-        el.addEventListener("mousedown", (ev) => {
-          ev.preventDefault();
-          chooseSuggestion(idx);
-        });
-
-        list.appendChild(el);
-      });
-      showList();
     }
 
     function updateSelection() {
-      const children = Array.from(list.querySelectorAll(".autocomplete-item"));
+      const children = Array.from(dropdown.querySelectorAll('.autocomplete-item'));
       children.forEach((c, i) => {
-        c.setAttribute("aria-selected", String(i === focusedIndex));
-        if (i === focusedIndex) c.scrollIntoView({ block: "nearest", behavior: "auto" });
+        c.setAttribute('aria-selected', String(i === focusedIndex));
+        if (i === focusedIndex) c.scrollIntoView({ block: 'nearest', behavior: 'auto' });
       });
+    }
+
+    function renderSuggestions(items) {
+      dropdown.innerHTML = '';
+      if (!items || items.length === 0) {
+        dropdown.appendChild(emptyNode);
+        showDropdown();
+        positionDropdown();
+        return;
+      }
+      items.forEach((it, idx) => {
+        const el = document.createElement('div');
+        el.className = 'autocomplete-item';
+        el.setAttribute('role', 'option');
+        el.setAttribute('data-idx', idx);
+        el.tabIndex = -1;
+
+        const title = document.createElement('div');
+        title.className = 'autocomplete-title';
+        title.innerHTML = (it.display_name || '').split(',')[0] || it.display_name || '';
+
+        const sub = document.createElement('div');
+        sub.className = 'autocomplete-sub';
+        sub.textContent = it.address ? composeAddress(it.address) : (it.display_name || '');
+
+        el.appendChild(title);
+        el.appendChild(sub);
+
+        el.addEventListener('mousedown', (ev) => {
+          ev.preventDefault(); // prevent input blur before click
+          chooseSuggestion(idx);
+        });
+
+        dropdown.appendChild(el);
+      });
+      showDropdown();
+      positionDropdown();
     }
 
     function composeAddress(addrObj) {
       const parts = [];
+      if (!addrObj) return '';
       if (addrObj.road) parts.push(addrObj.road);
       if (addrObj.suburb) parts.push(addrObj.suburb);
       if (addrObj.city) parts.push(addrObj.city);
@@ -797,86 +811,82 @@ function renderNearbyItems(items, categoryType, centerLat, centerLon) {
       else if (addrObj.village) parts.push(addrObj.village);
       if (addrObj.state && parts.indexOf(addrObj.state) === -1) parts.push(addrObj.state);
       if (addrObj.country) parts.push(addrObj.country);
-      return parts.join(", ");
+      return parts.join(', ');
     }
 
-      async function fetchSuggestions(query) {
-  if (!query || query.length < 2) return [];
+    async function fetchSuggestions(query) {
+      if (!query || query.length < 2) return [];
 
-  // cancel previous request
-  if (abortController) {
-    try { abortController.abort(); } catch (e) {}
-  }
-  abortController = new AbortController();
-  const signal = abortController.signal;
-
-  // Use a slightly larger limit so we can pick the closest among more candidates
-  const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&limit=10&q=${encodeURIComponent(query)}&accept-language=en`;
-
-  try {
-    list.innerHTML = "";
-    list.appendChild(loadingNode);
-    showList();
-
-    const res = await fetch(url, { signal, headers: { "Referer": window.location.origin } });
-    if (!res.ok) throw new Error("Fetch failed");
-    const data = await res.json();
-    const rawItems = (Array.isArray(data) ? data : []).map(d => ({
-      display_name: d.display_name,
-      lat: parseFloat(d.lat),
-      lon: parseFloat(d.lon),
-      address: d.address || null,
-      type: d.type || null
-    }));
-
-    // Compute distances relative to the current live location each time (don't cache distances)
-    const map = window.__NAV__?.map;
-    // Prefer explicit live location from map module if available
-    let liveLatLng = null;
-    if (window.__NAV__?.userLocation) {
-      liveLatLng = L.latLng(window.__NAV__.userLocation.lat, window.__NAV__.userLocation.lng);
-    } else if (map) {
-      liveLatLng = map.getCenter();
-    }
-
-    const itemsWithDistance = rawItems.map(it => {
-      let distance = null;
-      if (liveLatLng && !Number.isNaN(it.lat) && !Number.isNaN(it.lon)) {
-        try {
-          distance = L.latLng(it.lat, it.lon).distanceTo(liveLatLng); // meters
-        } catch (e) { distance = null; }
+      // cancel previous request
+      if (abortController) {
+        try { abortController.abort(); } catch (e) {}
       }
-      return Object.assign({}, it, { distance });
-    });
+      abortController = new AbortController();
+      const signal = abortController.signal;
 
-    // Sort by computed distance (closest first); null distances go to the end
-    itemsWithDistance.sort((a, b) => {
-      if (a.distance == null && b.distance == null) return 0;
-      if (a.distance == null) return 1;
-      if (b.distance == null) return -1;
-      return a.distance - b.distance;
-    });
+      // Nominatim request (v2)
+      const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&limit=10&q=${encodeURIComponent(query)}&accept-language=en`;
 
-    // (Optional) cache rawItems keyed by query if you want to avoid refetching,
-    // but do NOT cache distances. If you prefer caching, use:
-    // cache.set(query, rawItems);
+      try {
+        dropdown.innerHTML = '';
+        dropdown.appendChild(loadingNode);
+        showDropdown();
+        positionDropdown();
 
-    return itemsWithDistance;
-  } catch (err) {
-    if (err.name === "AbortError") return [];
-    console.warn("Autocomplete fetch error:", err);
-    return [];
-  }
-}
+        const res = await fetch(url, { signal, headers: { "Referer": window.location.origin } });
+        if (!res.ok) throw new Error("Fetch failed");
+        const data = await res.json();
+        const rawItems = (Array.isArray(data) ? data : []).map(d => ({
+          display_name: d.display_name,
+          lat: parseFloat(d.lat),
+          lon: parseFloat(d.lon),
+          address: d.address || null,
+          type: d.type || null,
+          osm_id: d.osm_id,
+          osm_type: d.osm_type
+        }));
 
+        // compute distances relative to live location if available
+        const map = window.__NAV__?.map;
+        let liveLatLng = null;
+        if (window.__NAV__?.userLocation) {
+          liveLatLng = L.latLng(window.__NAV__.userLocation.lat, window.__NAV__.userLocation.lng);
+        } else if (map) {
+          liveLatLng = map.getCenter();
+        }
 
+        const itemsWithDistance = rawItems.map(it => {
+          let distance = null;
+          if (liveLatLng && !Number.isNaN(it.lat) && !Number.isNaN(it.lon)) {
+            try {
+              distance = L.latLng(it.lat, it.lon).distanceTo(liveLatLng);
+            } catch (e) { distance = null; }
+          }
+          return Object.assign({}, it, { distance });
+        });
+
+        // sort by distance where available
+        itemsWithDistance.sort((a, b) => {
+          if (a.distance == null && b.distance == null) return 0;
+          if (a.distance == null) return 1;
+          if (b.distance == null) return -1;
+          return a.distance - b.distance;
+        });
+
+        return itemsWithDistance;
+      } catch (err) {
+        if (err.name === 'AbortError') return [];
+        console.warn('Autocomplete fetch error:', err);
+        return [];
+      }
+    }
 
     async function onInputChanged(e) {
-      const q = (e.target.value || "").trim();
+      const q = (e.target.value || '').trim();
       lastQuery = q;
       if (debounceTimer) clearTimeout(debounceTimer);
       if (!q || q.length < 2) {
-        hideList();
+        hideDropdown();
         return;
       }
       debounceTimer = setTimeout(async () => {
@@ -885,199 +895,128 @@ function renderNearbyItems(items, categoryType, centerLat, centerLon) {
         currentSuggestions = items;
         focusedIndex = -1;
         renderSuggestions(items);
-      }, 300);
+      }, 260);
     }
 
-async function chooseSuggestion(idx) {
-  const item = currentSuggestions[idx];
-  if (!item) return;
-  searchInput.value = item.display_name;
-  hideList();
+    async function chooseSuggestion(idx) {
+      const item = currentSuggestions[idx];
+      if (!item) return;
+      searchInput.value = item.display_name || '';
+      hideDropdown();
 
-  const map = window.__NAV__?.map;
-  const markersLayer = window.__NAV__?.markersLayer;
-  const clearMarkers = window.__NAV__?.clearMarkers;
-  if (!map || !markersLayer || !clearMarkers) {
-    // fallback: directly set destination if map isn't ready
-    if (window.__NAV__ && typeof window.__NAV__.setDestination === "function") {
-      try {
-        await window.__NAV__.setDestination({ lat: item.lat, lng: item.lon }, `<strong>${escapeHtml(item.display_name)}</strong>`);
-        const m = window.__NAV__.map;
-        if (m) m.setView([item.lat, item.lon], 15);
-      } catch (err) { console.warn("Failed to set destination from search:", err); }
+      const map = window.__NAV__?.map;
+      const markersLayer = window.__NAV__?.markersLayer;
+      const clearMarkers = window.__NAV__?.clearMarkers;
+
+      // prefer using your existing window.__NAV__ API
+      if (window.__NAV__ && typeof window.__NAV__.setDestination === 'function') {
+        try {
+          await window.__NAV__.setDestination({ lat: item.lat, lng: item.lon }, `<strong>${escapeHtml((item.display_name||'').split(',')[0])}</strong>`);
+          if (map) map.setView([item.lat, item.lon], 15);
+        } catch (err) { console.warn('setDestination failed:', err); }
+        return;
+      }
+
+      // fallback: create marker as earlier behaviour
+      if (!map || !markersLayer || !clearMarkers) {
+        return;
+      }
+
+      clearMarkers();
+      const poi = {
+        id: item.osm_id ? `nominatim:${item.osm_type || 'x'}:${item.osm_id}` : `search:${Date.now()}`,
+        type: item.type || 'place',
+        lat: item.lat,
+        lon: item.lon,
+        name: item.display_name,
+        tags: item.address || {}
+      };
+
+      const fav = isFavorite(poi);
+      const favLabel = fav ? "★ Favorited" : "☆ Favorite";
+      const prettyName = (item.display_name || '').split(',')[0] || item.display_name;
+
+      const popupHtml = `<div style="min-width:200px">
+        <strong>${escapeHtml(prettyName)}</strong><br/>
+        <small style="color:#888">${escapeHtml(item.display_name)}</small>
+        <div style="margin-top:8px; display:flex; gap:8px; align-items:center;">
+          <button data-action="goto" data-lat="${item.lat}" data-lon="${item.lon}" class="chip">Go</button>
+          <button data-action="fav" data-id="${escapeHtml(poi.id)}" class="chip">${favLabel}</button>
+          <button data-action="setstart" data-lat="${item.lat}" data-lon="${item.lon}" class="chip">Set as start</button>
+        </div>
+      </div>`;
+
+      const marker = L.marker([item.lat, item.lon]).addTo(markersLayer);
+      marker.bindPopup(popupHtml);
+      marker.on('popupopen', (ev) => {
+        const popupEl = ev.popup.getElement();
+        if (!popupEl) return;
+        // reuse your existing handlers (similar to original code)
+        const gotoBtn = popupEl.querySelector('button[data-action="goto"]');
+        if (gotoBtn) gotoBtn.addEventListener('click', async () => {
+          if (window.__NAV__?.setDestination) {
+            await window.__NAV__.setDestination({ lat: item.lat, lng: item.lon }, `<strong>${escapeHtml(prettyName)}</strong>`);
+            if (map) map.setView([item.lat, item.lon], 15);
+          } else marker.openPopup();
+        });
+      });
+      marker.openPopup();
+      if (map) map.setView([item.lat, item.lon], 15);
     }
-    return;
-  }
 
-  // Clear previous simple markers but keep destination/start markers intact
-  clearMarkers();
-
-  // Build a POI object (compatible with favorites helpers)
-  const poi = {
-    id: item.osm_id ? `nominatim:${item.osm_type || 'x'}:${item.osm_id}` : `search:${Date.now()}`,
-    type: item.type || "place",
-    lat: item.lat,
-    lon: item.lon,
-    name: item.display_name,
-    tags: item.address || {}
-  };
-
-  const fav = isFavorite(poi);
-  const favLabel = fav ? "★ Favorited" : "☆ Favorite";
-  const prettyName = (item.display_name || "").split(",")[0] || item.display_name;
-
-  const popupHtml = `<div style="min-width:200px">
-    <strong>${escapeHtml(prettyName)}</strong><br/>
-    <small style="color:#888">${escapeHtml(item.display_name)}</small>
-    <div style="margin-top:8px; display:flex; gap:8px; align-items:center;">
-      <button data-action="goto" data-lat="${item.lat}" data-lon="${item.lon}" class="chip">Go</button>
-      <button data-action="fav" data-id="${escapeHtml(poi.id)}" class="chip">${favLabel}</button>
-      <button data-action="setstart" data-lat="${item.lat}" data-lon="${item.lon}" class="chip">Set as start</button>
-    </div>
-  </div>`;
-
-  // create the marker
-  const marker = L.marker([item.lat, item.lon]).addTo(markersLayer);
-  marker.bindPopup(popupHtml);
-
-  // IMPORTANT: attach the popupopen handler BEFORE opening the popup
-  marker.on("popupopen", (ev) => {
-    const popupEl = ev.popup.getElement();
-    if (!popupEl) return;
-
-    // remove any existing listeners on popup buttons (defensive) to avoid duplicates
-    const cloneAndReplace = (sel) => {
-      const el = popupEl.querySelector(sel);
-      if (!el) return null;
-      const newEl = el.cloneNode(true);
-      el.parentNode.replaceChild(newEl, el);
-      return newEl;
-    };
-
-    // GOTO
-    const gotoBtn = cloneAndReplace('button[data-action="goto"]');
-    if (gotoBtn) gotoBtn.addEventListener("click", async () => {
-      try {
-        if (window.__NAV__ && typeof window.__NAV__.setDestination === "function") {
-          await window.__NAV__.setDestination({ lat: item.lat, lng: item.lon }, `<strong>${escapeHtml(prettyName)}</strong>`);
-          map.setView([item.lat, item.lon], 15);
-        } else {
-          marker.openPopup();
-        }
-      } catch (err) { console.warn(err); marker.openPopup(); }
-    });
-
-    // FAVORITE
-    const favBtn = cloneAndReplace('button[data-action="fav"]');
-    if (favBtn) favBtn.addEventListener("click", async () => {
-      try {
-        if (isFavorite(poi)) {
-          toggleFavorite(poi);
-          favBtn.textContent = "☆ Favorite";
-          renderFavorites();
-          showPopup("Removed from favorites", 1200);
-          return;
-        }
-        const suggested = poi.name || prettyName || "";
-        const chosen = await promptFavoriteName(suggested);
-        if (!chosen) return; // cancelled
-        const toSave = {
-          id: poi.id,
-          type: poi.type,
-          lat: poi.lat,
-          lon: poi.lon,
-          name: chosen,
-          tags: poi.tags || {}
-        };
-        toggleFavorite(toSave);
-        favBtn.textContent = "★ Favorited";
-        renderFavorites();
-        showPopup("Saved to favorites", 1200);
-      } catch (err) {
-        console.warn("Favorite action failed:", err);
-        showPopup("Could not update favorite", 1500);
-      }
-    });
-
-    // SET AS START
-    const startBtn = cloneAndReplace('button[data-action="setstart"]');
-    if (startBtn) startBtn.addEventListener("click", async () => {
-      try {
-        if (window.__NAV__ && typeof window.__NAV__.createStartMarker === "function") {
-          await window.__NAV__.createStartMarker(L.latLng(item.lat, item.lon), `<strong>Start: ${escapeHtml(prettyName)}</strong>`);
-          map.setView([item.lat, item.lon], 15);
-          showPopup("Start location set", 1200);
-        } else {
-          showPopup("Start feature unavailable", 1400);
-        }
-      } catch (err) {
-        console.warn("Failed to set start:", err);
-        showPopup("Could not set start", 1400);
-      }
-    });
-  });
-
-  // now open the popup (listener is already attached)
-  marker.openPopup();
-  map.setView([item.lat, item.lon], 15);
-}
-
-
-
-    searchInput.addEventListener("keydown", (ev) => {
+    // keyboard handling for the selected search input
+    function onKeyDown(ev) {
       const key = ev.key;
-      if (list.style.display === "none") {
-        // If no suggestion list, allow default handling; e.g., Enter -> full search
-        if (key === "Enter") {
+      if (dropdown.style.display === 'none') {
+        if (key === 'Enter') {
           ev.preventDefault();
-          const q = (searchInput.value || "").trim();
-          if (q.length > 0) {
-            if (typeof searchPlace === "function") searchPlace(q);
-          }
+          const q = (searchInput.value || '').trim();
+          if (q.length > 0 && typeof searchPlace === 'function') searchPlace(q);
         }
         return;
       }
-      if (key === "ArrowDown") {
+      if (key === 'ArrowDown') {
         ev.preventDefault();
         if (currentSuggestions.length === 0) return;
         focusedIndex = Math.min(currentSuggestions.length - 1, focusedIndex + 1);
         updateSelection();
-      } else if (key === "ArrowUp") {
+      } else if (key === 'ArrowUp') {
         ev.preventDefault();
         if (currentSuggestions.length === 0) return;
         focusedIndex = Math.max(0, focusedIndex - 1);
         updateSelection();
-      } else if (key === "Enter") {
+      } else if (key === 'Enter') {
         if (focusedIndex >= 0 && focusedIndex < currentSuggestions.length) {
           ev.preventDefault();
           chooseSuggestion(focusedIndex);
         } else {
           ev.preventDefault();
-          const q = (searchInput.value || "").trim();
-          if (q.length > 0) {
-            if (typeof searchPlace === "function") searchPlace(q);
-          }
+          const q = (searchInput.value || '').trim();
+          if (q.length > 0 && typeof searchPlace === 'function') searchPlace(q);
         }
-      } else if (key === "Escape") {
-        hideList();
+      } else if (key === 'Escape') {
+        hideDropdown();
       }
-    });
-
-    searchInput.addEventListener("input", onInputChanged);
-
-    searchInput.addEventListener("blur", () => {
-      setTimeout(() => hideList(), 180);
-    });
-
-    function escapeHtml(s) {
-      return s.replace(/[&<>"']/g, (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[m]));
     }
 
-    document.addEventListener("click", (ev) => {
-      if (!wrapper.contains(ev.target)) hideList();
-    });
+    function escapeHtml(s) {
+      return String(s || "").replace(/[&<>"']/g, (m) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
+    }
 
-  })(); // end setupAdvancedSearch IIFE
+    // attach listeners
+    searchInput.addEventListener('input', onInputChanged);
+    searchInput.addEventListener('keydown', onKeyDown);
+    searchInput.addEventListener('blur', () => setTimeout(() => hideDropdown(), 180));
+    document.addEventListener('click', (ev) => { if (!searchInput.contains(ev.target) && !dropdown.contains(ev.target)) hideDropdown(); });
+
+    // reposition dropdown on resize/scroll and when the page layout changes
+    window.addEventListener('resize', positionDropdown, { passive: true });
+    window.addEventListener('scroll', positionDropdown, true);
+
+    // initial position update
+    setTimeout(positionDropdown, 80);
+  })(); // end setupAdvancedSearchRobust IIFE
+
 
 
   // ==========================
