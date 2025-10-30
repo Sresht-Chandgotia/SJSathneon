@@ -30,6 +30,7 @@
   let userMarker = null;
   let userCircle = null;
   let hasCentered = false;
+  
 
   const style = document.createElement("style");
   style.textContent = `
@@ -94,106 +95,103 @@
       userCircle.setRadius(radius);
     }
 
-  window.__NAV__ = window.__NAV__ || {};
-  window.__NAV__.userLocation = { lat: lat, lng: lon };
+    window.__NAV__ = window.__NAV__ || {};
+    window.__NAV__.userLocation = { lat: lat, lng: lon };
 
-  
-// center the map on first good live location — hide "cloud" during animation
-if (!hasCentered) {
-  let zoom;
-  if (accuracy <= 20) zoom = 18;
-  else if (accuracy <= 50) zoom = 17;
-  else if (accuracy <= 150) zoom = 16;
-  else zoom = 15;
+    // center the map on first good live location — hide "cloud" during animation
+    if (!hasCentered) {
+      let zoom;
+      if (accuracy <= 20) zoom = 18;
+      else if (accuracy <= 50) zoom = 17;
+      else if (accuracy <= 150) zoom = 16;
+      else zoom = 15;
 
-  try {
-    // stop any current animation to avoid jumpiness
-    if (typeof map.stop === "function") map.stop();
-
-    // compute duration based on distance (clamped)
-    let duration = 1.0;
-    try {
-      const distMeters = map.distance(map.getCenter(), latlng);
-      duration = Math.min(3.0, Math.max(1.0, distMeters / 900));
-    } catch (e) { /* fallback */ }
-
-    // ---- TEMPORARILY SUPPRESS VISUALS THAT CAUSE THE "CLOUD" ----
-    // 1) hide/low-opacity the accuracy circle if present
-    const originalCircleStyle = userCircle ? {
-      fillOpacity: userCircle.options.fillOpacity,
-      opacity: userCircle.options.opacity
-    } : null;
-    if (userCircle) {
       try {
-        userCircle.setStyle({ fillOpacity: 0, opacity: 0 });
-      } catch (e) { /* ignore */ }
-    }
+        // stop any current animation to avoid jumpiness
+        if (typeof map.stop === "function") map.stop();
 
-    // 2) suppress the pulse animation on the marker DOM element if available
-    let markerEl = null;
-    try {
-      markerEl = userMarker && typeof userMarker.getElement === "function" ? userMarker.getElement() : null;
-      if (markerEl) {
-        const dot = markerEl.querySelector(".pulse-dot");
-        if (dot) dot.classList.add("no-pulse-during-fly");
-      }
-    } catch (e) { /* ignore */ }
+        // compute duration based on distance (clamped)
+        let duration = 1.0;
+        try {
+          const distMeters = map.distance(map.getCenter(), latlng);
+          duration = Math.min(3.0, Math.max(1.0, distMeters / 900));
+        } catch (e) { /* fallback */ }
 
-    // prepare restore function
-    const restoreVisuals = () => {
-      try {
-        if (userCircle && originalCircleStyle) {
-          userCircle.setStyle({ fillOpacity: originalCircleStyle.fillOpacity, opacity: originalCircleStyle.opacity });
+        // ---- TEMPORARILY SUPPRESS VISUALS THAT CAUSE THE "CLOUD" ----
+        // 1) hide/low-opacity the accuracy circle if present
+        const originalCircleStyle = userCircle ? {
+          fillOpacity: userCircle.options.fillOpacity,
+          opacity: userCircle.options.opacity
+        } : null;
+        if (userCircle) {
+          try {
+            userCircle.setStyle({ fillOpacity: 0, opacity: 0 });
+          } catch (e) { /* ignore */ }
         }
-      } catch (e) { /* ignore */ }
-      try {
-        if (markerEl) {
-          const dot = markerEl.querySelector(".pulse-dot");
-          if (dot) dot.classList.remove("no-pulse-during-fly");
+
+        // 2) suppress the pulse animation on the marker DOM element if available
+        let markerEl = null;
+        try {
+          markerEl = userMarker && typeof userMarker.getElement === "function" ? userMarker.getElement() : null;
+          if (markerEl) {
+            const dot = markerEl.querySelector(".pulse-dot");
+            if (dot) dot.classList.add("no-pulse-during-fly");
+          }
+        } catch (e) { /* ignore */ }
+
+        // prepare restore function
+        const restoreVisuals = () => {
+          try {
+            if (userCircle && originalCircleStyle) {
+              userCircle.setStyle({ fillOpacity: originalCircleStyle.fillOpacity, opacity: originalCircleStyle.opacity });
+            }
+          } catch (e) { /* ignore */ }
+          try {
+            if (markerEl) {
+              const dot = markerEl.querySelector(".pulse-dot");
+              if (dot) dot.classList.remove("no-pulse-during-fly");
+            }
+          } catch (e) { /* ignore */ }
+        };
+
+        // listen for map movement end (fires after flyTo finishes)
+        const onMoveEnd = () => {
+          restoreVisuals();
+          map.off("moveend", onMoveEnd);
+        };
+        map.on("moveend", onMoveEnd);
+
+        // do the smooth fly
+        map.flyTo(latlng, zoom, { animate: true, duration, easeLinearity: 0.12 });
+      } catch (e) {
+        // fallback: setView and restore visuals immediately
+        try { map.setView(latlng, zoom); } catch (err) {}
+        if (userCircle) {
+          try { userCircle.setStyle({ fillOpacity: originalCircleStyle ? originalCircleStyle.fillOpacity : 0.04, opacity: originalCircleStyle ? originalCircleStyle.opacity : 0.85 }); } catch (err) {}
         }
-      } catch (e) { /* ignore */ }
-    };
-
-    // listen for map movement end (fires after flyTo finishes)
-    const onMoveEnd = () => {
-      restoreVisuals();
-      map.off("moveend", onMoveEnd);
-    };
-    map.on("moveend", onMoveEnd);
-
-    // do the smooth fly
-    map.flyTo(latlng, zoom, { animate: true, duration, easeLinearity: 0.12 });
-  } catch (e) {
-    // fallback: setView and restore visuals immediately
-    try { map.setView(latlng, zoom); } catch (err) {}
-    if (userCircle) {
-      try { userCircle.setStyle({ fillOpacity: originalCircleStyle ? originalCircleStyle.fillOpacity : 0.04, opacity: originalCircleStyle ? originalCircleStyle.opacity : 0.85 }); } catch (err) {}
-    }
-    try {
-      const markerEl2 = userMarker && typeof userMarker.getElement === "function" ? userMarker.getElement() : null;
-      if (markerEl2) {
-        const dot2 = markerEl2.querySelector(".pulse-dot");
-        if (dot2) dot2.classList.remove("no-pulse-during-fly");
+        try {
+          const markerEl2 = userMarker && typeof userMarker.getElement === "function" ? userMarker.getElement() : null;
+          if (markerEl2) {
+            const dot2 = markerEl2.querySelector(".pulse-dot");
+            if (dot2) dot2.classList.remove("no-pulse-during-fly");
+          }
+        } catch (err) {}
       }
-    } catch (err) {}
-  }
 
-  hasCentered = true;
-}
-
-
-
+      hasCentered = true;
+    }
 
     // update route start if route exists
-    if (window.__NAV__?.routeControl && window.__NAV__.destinationMarker) {
-      try {
-        window.__NAV__.routeControl.setWaypoints([latlng, window.__NAV__.destinationMarker.getLatLng()]);
-      } catch (e) { console.warn("Failed to update route waypoints:", e); }
-    }
-    
+    // NOTE: prefer updateRoute() which understands startMarker; easier and robust
+    // update route start if route exists — prefer custom startMarker if present
+if (window.__NAV__?.routeControl && window.__NAV__?.destinationMarker) {
+  try {
+    const startLatLng = (startMarker && map.hasLayer(startMarker)) ? startMarker.getLatLng() : latlng;
+    window.__NAV__.routeControl.setWaypoints([startLatLng, window.__NAV__.destinationMarker.getLatLng()]);
+  } catch (e) { console.warn("Failed to update route waypoints:", e); }
+}
+
   }
-
-
 
   // native geolocation watch (keep yours)
   function startHighAccuracyWatch() {
@@ -211,9 +209,10 @@ if (!hasCentered) {
   startHighAccuracyWatch();
 
   // ----------------------------
-  // ROUTING / DESTINATION LOGIC
+  // ROUTING / DESTINATION / START LOGIC (REPLACED BLOCK)
   // ----------------------------
   let destinationMarker = null;
+  let startMarker = null;        // new start marker
   let routeControl = null;
   let lastFitOnce = false;
 
@@ -251,6 +250,97 @@ if (!hasCentered) {
     return latlng;
   }
 
+  // Create or move START marker (draggable)
+  function createStartMarker(latlng, popupHtml) {
+    const startIcon = L.divIcon({
+      className: "",
+      html: `<div style="width:16px;height:16px;border-radius:50%;background: #ffcc00;border:2px solid white;box-shadow:0 0 8px rgba(255,204,0,0.6)"></div>`,
+      iconSize: [16, 16],
+      iconAnchor: [8, 8],
+    });
+
+    if (!startMarker) {
+      startMarker = L.marker(latlng, { icon: startIcon, draggable: true }).addTo(map);
+      startMarker.on("dragend", async (ev) => {
+        const pos = ev.target.getLatLng();
+        const snapped = await snapToRoad(pos);
+        startMarker.setLatLng(snapped);
+        updateRoute();
+      });
+    } else {
+      startMarker.setLatLng(latlng);
+    }
+
+    if (popupHtml) {
+      try { startMarker.bindPopup(popupHtml).openPopup(); } catch (e) {}
+    }
+
+    window.__NAV__ = window.__NAV__ || {};
+    window.__NAV__.startMarker = startMarker;
+    updateRoute();
+    return startMarker;
+  }
+
+  // Clear start marker
+  function clearStartMarker() {
+    if (startMarker) {
+      try { if (map.hasLayer(startMarker)) map.removeLayer(startMarker); } catch (e) {}
+      startMarker = null;
+      if (window.__NAV__) window.__NAV__.startMarker = null;
+    }
+    // Recompute route (will fallback to live location)
+    updateRoute();
+  }
+
+  // Create or move a custom start marker (draggable)
+function createStartMarker(latlng, popupHtml) {
+  const startIcon = L.divIcon({
+    className: "",
+    html: `<div style="width:16px;height:16px;border-radius:50%;background:#34d399;border:2px solid white;box-shadow:0 0 8px rgba(52,211,153,0.6)"></div>`,
+    iconSize: [16, 16],
+    iconAnchor: [8, 8],
+  });
+
+  if (!startMarker) {
+    startMarker = L.marker(latlng, { icon: startIcon, draggable: true }).addTo(map);
+    startMarker.on("dragend", async (ev) => {
+      const pos = ev.target.getLatLng();
+      const snapped = await snapToRoad(pos);
+      startMarker.setLatLng(snapped);
+      updateRoute();
+    });
+  } else {
+    startMarker.setLatLng(latlng);
+    if (!map.hasLayer(startMarker)) map.addLayer(startMarker);
+  }
+
+  if (popupHtml) {
+    try { startMarker.bindPopup(popupHtml).openPopup(); } catch (e) {}
+  }
+
+  window.__NAV__ = window.__NAV__ || {};
+  window.__NAV__.startMarker = startMarker;
+
+  // If a destination exists, update the route to start here
+  if (window.__NAV__?.destinationMarker) updateRoute();
+  return startMarker;
+}
+
+function clearStartMarker() {
+  if (startMarker) {
+    try { if (map.hasLayer(startMarker)) map.removeLayer(startMarker); } catch (e) {}
+    startMarker = null;
+    if (window.__NAV__) window.__NAV__.startMarker = null;
+  }
+  // restore route start to live user location if applicable
+  if (window.__NAV__?.routeControl && window.__NAV__?.destinationMarker && userMarker) {
+    try {
+      window.__NAV__.routeControl.setWaypoints([userMarker.getLatLng(), window.__NAV__.destinationMarker.getLatLng()]);
+    } catch (e) { console.warn("Failed to reset route to live location:", e); }
+  }
+}
+
+
   // Create or move destination marker (draggable)
   function createDestinationMarker(latlng, popupHtml) {
     const destIcon = L.divIcon({
@@ -279,10 +369,11 @@ if (!hasCentered) {
 
     window.__NAV__ = window.__NAV__ || {};
     window.__NAV__.destinationMarker = destinationMarker;
+    updateRoute();
     return destinationMarker;
   }
 
-  // Clear
+  // Clear destination
   function clearDestination() {
     if (destinationMarker) {
       try { if (map.hasLayer(destinationMarker)) map.removeLayer(destinationMarker); } catch (e) {}
@@ -302,26 +393,8 @@ if (!hasCentered) {
     if (etaEl) etaEl.textContent = "—";
   }
 
-// ==========================
-// MODE SPEEDS & STYLES
-// ==========================
-const modeSpeeds = {
-  driving: {
-    speedKmph: 18,
-    style: { weight: 7, dashArray: null, color: "#00f3ff", opacity: 0.98 } // bright cyan, solid
-  },
-  walking: {
-    speedKmph: 5,
-    style: { weight: 4, dashArray: "8,6", color: "#66cc66", opacity: 0.9 } // green dashed
-  },
-  cycling: {
-    speedKmph: 14,
-    style: { weight: 5, dashArray: "2,10", color: "#ff6b97ff", opacity: 0.95 } // orange dotted
-  }
-};
-
-
-// ---------- REPLACEMENT updateRoute() ----------
+  // Update route — prefer explicit startMarker, else use live userMarker
+// ---------- REPLACEMENT updateRoute() (robust to missing modeSpeeds) ----------
 function updateRoute() {
   if (!destinationMarker || !userMarker) {
     if (routeControl) {
@@ -337,7 +410,8 @@ function updateRoute() {
     return;
   }
 
-  const from = userMarker.getLatLng();
+const from = (startMarker && map.hasLayer(startMarker)) ? startMarker.getLatLng() : userMarker.getLatLng();
+
   const to = destinationMarker.getLatLng();
 
   // Remove old route control so we can recreate with new style/profile
@@ -347,8 +421,18 @@ function updateRoute() {
     if (window.__NAV__) window.__NAV__.routeControl = null;
   }
 
+  // Fallback speeds/styles if modeSpeeds isn't defined (prevents ReferenceError)
+  const defaultModeSpeeds = {
+    driving: { speedKmph: 18, style: { weight: 7, dashArray: null, color: "#00f3ff", opacity: 0.98 } },
+    walking: { speedKmph: 5, style: { weight: 4, dashArray: "8,6", color: "#66cc66", opacity: 0.9 } },
+    cycling: { speedKmph: 14, style: { weight: 5, dashArray: "2,10", color: "#ff6b97ff", opacity: 0.95 } }
+  };
+
+  // Use either the declared modeSpeeds or fallback
+  const speeds = (typeof modeSpeeds !== "undefined" && modeSpeeds) ? modeSpeeds : defaultModeSpeeds;
+
   // Mode-specific style (defaults if not present)
-  const styleCfg = (modeSpeeds[currentMode] && modeSpeeds[currentMode].style) || {};
+  const styleCfg = (speeds[currentMode] && speeds[currentMode].style) || {};
   // Provide sensible defaults
   const color = styleCfg.color || (currentMode === "walking" ? "#66cc66" : currentMode === "cycling" ? "#ffb86b" : "#00f3ff");
   const weight = styleCfg.weight || (currentMode === "walking" ? 4 : currentMode === "cycling" ? 5 : 6);
@@ -410,8 +494,8 @@ function updateRoute() {
         }
       }
 
-      // Compute ETA client-side using modeSpeeds
-      const speedKmph = (modeSpeeds[currentMode] && modeSpeeds[currentMode].speedKmph) || 45;
+      // Compute ETA client-side using speeds (use speeds[currentMode] fallback)
+      const speedKmph = (speeds[currentMode] && speeds[currentMode].speedKmph) || 45;
       const speedMps = (speedKmph * 1000) / 3600;
       let seconds = null;
       if (meters != null && !Number.isNaN(meters) && speedMps > 0) seconds = Math.round(meters / speedMps);
@@ -452,6 +536,23 @@ function updateRoute() {
 // ---------- end replacement ----------
 
 
+  // setRoutingMode remains same but calls updateRoute
+  function setRoutingMode(mode) {
+    if (!mode) return;
+    if (!["driving", "walking", "cycling"].includes(mode)) return;
+    currentMode = mode;
+
+    // Recreate route with new visual options and recompute ETA client-side
+    if (destinationMarker) {
+      if (routeControl) {
+        try { map.removeControl(routeControl); } catch (e) { console.warn(e); }
+        routeControl = null;
+        if (window.__NAV__) window.__NAV__.routeControl = null;
+      }
+      lastFitOnce = false;
+      updateRoute(); // this will compute ETA using the chosen mode speed
+    }
+  }
 
   // On map click: create destination then snap and update route
   map.on("click", async (e) => {
@@ -479,28 +580,7 @@ function updateRoute() {
     return destinationMarker;
   }
 
-// ---------- REPLACE setRoutingMode() WITH THIS ----------
-function setRoutingMode(mode) {
-  if (!mode) return;
-  if (!["driving", "walking", "cycling"].includes(mode)) return;
-  currentMode = mode;
-
-  // Recreate route with new visual options and recompute ETA client-side
-  if (destinationMarker) {
-    if (routeControl) {
-      try { map.removeControl(routeControl); } catch (e) { console.warn(e); }
-      routeControl = null;
-      if (window.__NAV__) window.__NAV__.routeControl = null;
-    }
-    lastFitOnce = false;
-    updateRoute(); // this will compute ETA using the chosen mode speed
-  }
-}
-
-// ---------- end setRoutingMode replacement ----------
-
-
-  // Expose functions to the rest of the app
+  // Expose functions to the rest of the app (added start functions)
   window.__NAV__ = window.__NAV__ || {};
   window.__NAV__.map = map;
   window.__NAV__.markersLayer = markersLayer;
@@ -510,6 +590,9 @@ function setRoutingMode(mode) {
   window.__NAV__.setDestination = setDestination;
   window.__NAV__.clearDestination = clearDestination;
   window.__NAV__.setRoutingMode = setRoutingMode;
+  window.__NAV__.createStartMarker = createStartMarker; // new
+  window.__NAV__.clearStartMarker = clearStartMarker;   // new
+  window.__NAV__.startMarker = startMarker;             // helpful reference
   window.__NAV__._getCurrentMode = () => currentMode;
 
   // keep original compatibility names

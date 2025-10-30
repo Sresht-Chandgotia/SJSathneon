@@ -1,9 +1,14 @@
+// app.js — full, complete
 document.addEventListener("DOMContentLoaded", () => {
   // --- HUD / SIDEBAR LOGIC ---
   const hud = document.getElementById("hud");
   const btnOpen = document.getElementById("hudToggle");
   const btnClose = document.getElementById("hudClose");
   const statusText = document.getElementById("statusText");
+
+  // allow map module to call our showPopup
+  window.__APP__ = window.__APP__ || {};
+  window.__APP__.showPopup = showPopup; // defined below (hoisted via function declaration)
 
   if (statusText) statusText.textContent = "HUD Online";
 
@@ -318,9 +323,6 @@ function promptFavoriteName(defaultName = "") {
   });
 }
 
-
-
-
 // Robust findNearby with lightweight-first queries, retries, and endpoint fallbacks
 async function findNearby(type, lat, lon) {
   const map = window.__NAV__?.map;
@@ -492,9 +494,8 @@ async function findNearby(type, lat, lon) {
   const toShow = items.slice(0, maxResults);
 
   // Add markers + click handler to set destination
-    // Render markers (with favorite + go behavior) using helper
+  // Render markers (with favorite + go behavior) using helper
   renderNearbyItems(toShow, type, lat, lon);
-
 
   showPopup(`Found ${items.length} ${type}(s). Showing closest ${toShow.length}.`, 3500);
 }
@@ -526,6 +527,7 @@ function renderNearbyItems(items, categoryType, centerLat, centerLon) {
       <div style="margin-top:8px; display:flex; gap:8px; align-items:center;">
         <button data-action="goto" data-lat="${it.lat}" data-lon="${it.lon}" class="chip">Go</button>
         <button data-action="fav" data-id="${escapeHtml(it.id)}" class="chip">${favLabel}</button>
+        <button data-action="setstart" class="chip" title="Set as start">Set start</button>
       </div>
     </div>`;
 
@@ -546,6 +548,21 @@ function renderNearbyItems(items, categoryType, centerLat, centerLon) {
             marker.openPopup();
           }
         } catch (e) { console.warn(e); marker.openPopup(); }
+      });
+
+      const setStartBtn = popupEl.querySelector('button[data-action="setstart"]');
+      if (setStartBtn) setStartBtn.addEventListener("click", async () => {
+        try {
+          if (window.__NAV__?.createStartMarker) {
+            await window.__NAV__.createStartMarker({ lat: it.lat, lng: it.lon }, `<strong>Start: ${escapeHtml(name)}</strong>`);
+            showPopup("Start set", 1400);
+          } else {
+            showPopup("Start feature not available", 1400);
+          }
+        } catch (err) {
+          console.warn("Failed to set start:", err);
+          showPopup("Could not set start", 1500);
+        }
       });
 
       const favBtn = popupEl.querySelector('button[data-action="fav"]');
@@ -592,10 +609,6 @@ function renderNearbyItems(items, categoryType, centerLat, centerLon) {
     if (idx === 0) marker.openPopup();
   });
 }
-
-
-
-
 
   // ==============================
   // Advanced Search + Autocomplete
@@ -800,7 +813,7 @@ function renderNearbyItems(items, categoryType, centerLat, centerLon) {
           addFavoriteFromPOI(poi);
           showPopup("Added to favorites", 1600);
 
-          const m = window.__NAV__?.map;
+                    const m = window.__NAV__?.map;
           const markers = window.__NAV__?.markersLayer;
           if (markers) {
             L.marker([item.lat, item.lon]).addTo(markers).bindPopup(`<strong>${escapeHtml(item.display_name)}</strong>`).openPopup();
@@ -865,10 +878,11 @@ function renderNearbyItems(items, categoryType, centerLat, centerLon) {
       if (!wrapper.contains(ev.target)) hideList();
     });
 
-  })();
+  })(); // end setupAdvancedSearch IIFE
+
 
   // ==========================
-  // CLEAR DESTINATION BUTTON
+  // CLEAR DESTINATION & START BUTTONS
   // ==========================
   const clearDestBtn = document.getElementById("clearDestinationBtn");
   if (clearDestBtn) {
@@ -898,78 +912,104 @@ function renderNearbyItems(items, categoryType, centerLat, centerLon) {
     });
   }
 
-  // Render Favorites list in HUD
-function renderFavorites() {
-  const container = document.getElementById("favoritesList");
-  if (!container) return;
-  container.innerHTML = "";
-  const favs = getFavorites();
-  if (!favs || favs.length === 0) {
-    container.innerHTML = `<div style="color:var(--muted);font-size:13px;">No favorites yet</div>`;
-    return;
-  }
-  favs.forEach((f) => {
-    const el = document.createElement("div");
-    el.style.display = "flex";
-    el.style.justifyContent = "space-between";
-    el.style.alignItems = "center";
-    el.style.gap = "8px";
-    el.style.padding = "8px 6px";
-    el.style.borderRadius = "8px";
-    el.style.background = "rgba(255,255,255,0.02)";
-    el.innerHTML = `
-      <div style="flex:1;min-width:0;">
-        <div style="font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
-          ${escapeHtml(f.name || f.type)}
-        </div>
-        <div style="font-size:12px;color:var(--muted)">${escapeHtml(f.type)}</div>
-      </div>
-      <div style="display:flex;gap:6px;">
-        <button class="chip fav-go" data-lat="${f.lat}" data-lon="${f.lon}" style="padding:6px 8px;">Go</button>
-        <button class="chip fav-remove" data-id="${escapeHtml(f.id)}" style="padding:6px 8px;">Remove</button>
-      </div>
-    `;
-    container.appendChild(el);
-
-    el.querySelector(".fav-go")?.addEventListener("click", async () => {
-      if (window.__NAV__?.setDestination) {
-        await window.__NAV__.setDestination({ lat: f.lat, lng: f.lon }, `<strong>${escapeHtml(f.name || f.type)}</strong>`);
-        window.__NAV__.map.setView([f.lat, f.lon], 15);
+  // optional clear start button (add <button id="clearStartBtn"> in HTML if you want)
+  const clearStartBtn = document.getElementById("clearStartBtn");
+  if (clearStartBtn) {
+    clearStartBtn.addEventListener("click", () => {
+      if (window.__NAV__ && typeof window.__NAV__.clearStartMarker === "function") {
+        window.__NAV__.clearStartMarker();
+        showPopup("Custom start cleared");
+      } else {
+        showPopup("Start feature not available", 1400);
       }
     });
-    el.querySelector(".fav-remove")?.addEventListener("click", () => {
-      toggleFavorite({ id: f.id, type: f.type });
-      renderFavorites();
+  }
+
+
+  // Render Favorites list in HUD
+  function renderFavorites() {
+    const container = document.getElementById("favoritesList");
+    if (!container) return;
+    container.innerHTML = "";
+    const favs = getFavorites();
+    if (!favs || favs.length === 0) {
+      container.innerHTML = `<div style="color:var(--muted);font-size:13px;">No favorites yet</div>`;
+      return;
+    }
+    favs.forEach((f) => {
+      const el = document.createElement("div");
+      el.style.display = "flex";
+      el.style.justifyContent = "space-between";
+      el.style.alignItems = "center";
+      el.style.gap = "8px";
+      el.style.padding = "8px 6px";
+      el.style.borderRadius = "8px";
+      el.style.background = "rgba(255,255,255,0.02)";
+      el.innerHTML = `
+        <div style="flex:1;min-width:0;">
+          <div style="font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
+            ${escapeHtml(f.name || f.type)}
+          </div>
+          <div style="font-size:12px;color:var(--muted)">${escapeHtml(f.type)}</div>
+        </div>
+        <div style="display:flex;gap:6px;">
+          <button class="chip fav-go" data-lat="${f.lat}" data-lon="${f.lon}" style="padding:6px 8px;">Go</button>
+          <button class="chip fav-remove" data-id="${escapeHtml(f.id)}" style="padding:6px 8px;">Remove</button>
+        </div>
+      `;
+      container.appendChild(el);
+
+      el.querySelector(".fav-go")?.addEventListener("click", async () => {
+        if (window.__NAV__?.setDestination) {
+          await window.__NAV__.setDestination({ lat: f.lat, lng: f.lon }, `<strong>${escapeHtml(f.name || f.type)}</strong>`);
+          window.__NAV__.map.setView([f.lat, f.lon], 15);
+        }
+      });
+      el.querySelector(".fav-remove")?.addEventListener("click", () => {
+        toggleFavorite({ id: f.id, type: f.type });
+        renderFavorites();
+      });
     });
+  }
+
+  // clear favorites button wiring
+  document.getElementById("clearFavoritesBtn")?.addEventListener("click", () => {
+    saveFavorites([]);
+    renderFavorites();
   });
-}
 
-// clear favorites button wiring
-document.getElementById("clearFavoritesBtn")?.addEventListener("click", () => {
-  saveFavorites([]);
+  // save current destination to favorites (button id: addDestinationFavBtn)
+  document.getElementById("addDestinationFavBtn")?.addEventListener("click", async () => {
+    try {
+      const dest = window.__NAV__?.destinationMarker;
+      if (!dest) return showPopup("No destination set to save.", 2200);
+
+      const latlng = dest.getLatLng();
+      // try to get name if popup exists (strip HTML if present)
+      let name = "Saved place";
+      try {
+        const popup = dest.getPopup();
+        if (popup && popup.getContent) {
+          const content = popup.getContent();
+          if (typeof content === "string") name = content.replace(/<\/?[^>]+(>|$)/g, "");
+        }
+      } catch (e) { /* ignore */ }
+
+      // prompt for friendly name first
+      const chosen = await promptFavoriteName(name);
+      if (!chosen) return; // cancelled
+
+      const poi = { id: `dest:${Date.now()}`, type: "destination", lat: latlng.lat, lon: latlng.lng, name: chosen };
+      const nowFav = addFavoriteFromPOI(poi);
+      showPopup(nowFav ? "Saved to favorites" : "Removed from favorites", 2000);
+    } catch (e) { console.warn(e); showPopup("Could not save destination", 2200); }
+  });
+
+  // initial render on load
   renderFavorites();
-});
-
-document.getElementById("addDestinationFavBtn")?.addEventListener("click", async () => {
-  try {
-    const dest = window.__NAV__?.destinationMarker;
-    if (!dest) return showPopup("No destination set to save.", 2200);
-
-    const latlng = dest.getLatLng();
-    // try to get name if popup exists
-    const name = (dest && dest.getPopup && dest.getPopup() && dest.getPopup().getContent) ? dest.getPopup().getContent() : "Saved place";
-    const poi = { id: `dest:${Date.now()}`, type: "destination", lat: latlng.lat, lon: latlng.lng, name };
-    const nowFav = addFavoriteFromPOI(poi);
-    showPopup(nowFav ? "Saved to favorites" : "Removed from favorites", 2000);
-  } catch (e) { console.warn(e); showPopup("Could not save destination", 2200); }
-});
 
 
-// initial render on load
-renderFavorites();
-
-
-
+  // Mode buttons wiring (driving/walking/cycling)
   const modeButtons = document.querySelectorAll(".mode-btn");
   modeButtons.forEach((btn) => {
     btn.addEventListener("click", () => {
@@ -985,19 +1025,22 @@ renderFavorites();
     });
   });
 
-});
+}); // end DOMContentLoaded
 
-//Nav bar upgrade
+
+// Nav bar upgrade (keeps your earlier code — place at bottom or in separate file)
 const hud = document.querySelector(".hud");
 const hudToggle = document.getElementById("hudToggle");
 const hudClose = document.getElementById("hudClose");
 
-hudToggle.addEventListener("click", () => {
-  hud.classList.add("expanded");
-  document.body.classList.add("hud-open"); // 👈 Add this line
-});
+if (hudToggle && hud && hudClose) {
+  hudToggle.addEventListener("click", () => {
+    hud.classList.add("expanded");
+    document.body.classList.add("hud-open");
+  });
 
-hudClose.addEventListener("click", () => {
-  hud.classList.remove("expanded");
-  document.body.classList.remove("hud-open"); // 👈 Add this line
-});
+  hudClose.addEventListener("click", () => {
+    hud.classList.remove("expanded");
+    document.body.classList.remove("hud-open");
+  });
+}
