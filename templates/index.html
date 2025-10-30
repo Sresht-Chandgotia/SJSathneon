@@ -31,20 +31,67 @@
     />
   </head>
   <body class="theme-dark">
-    <nav class="center-nav">
-       
-      <ul>
-           
-        <li><a href="#">Home</a></li>
-           
-        <li><a href="{{url_for('about')}}">About</a></li>
-           
-        <li><a href="#">Explore more</a></li>
-           
-        <li><a href="#">Settings</a></li>
-         
-      </ul>
-    </nav>
+    <nav class="center-nav" aria-label="Top navigation">
+  <div class="nav-left">
+    <!-- Search toggle + expandable input -->
+    <div class="nav-search hud-search-wrapper" id="navSearchWrap">
+      <button
+        class="search-toggle"
+        id="navSearchToggle"
+        aria-expanded="false"
+        aria-label="Open search"
+        title="Search"
+      >
+        🔎
+      </button>
+
+      <!-- keep id="search" so existing JS selectors still work; this input will be moved to navbar -->
+      <div class="search-input-wrap">
+        <input
+          id="search"
+          class="hud-input nav-hud-input"
+          placeholder="Search places (e.g., 'hospital near Andheri')"
+          aria-label="Search places"
+        />
+      </div>
+    </div>
+  </div>
+
+  <div class="nav-right" id="navPillsWrap" role="toolbar" aria-label="Quick actions">
+    <!-- Pills (icon + label). Labels hidden when nav search expands -->
+    <button class="pill pill-action" id="saveDestBtn" title="Save destination" aria-pressed="false">
+      <span class="pill-icon">☆</span>
+      <span class="pill-label">Save</span>
+    </button>
+
+    <button class="pill pill-action" id="clearDestBtn" title="Clear destination">
+      <span class="pill-icon">🗑️</span>
+      <span class="pill-label">Clear destination</span>
+    </button>
+
+    <button class="pill pill-action" id="clearStartBtnNav" title="Clear start">
+      <span class="pill-icon">🧭</span>
+      <span class="pill-label">Clear start</span>
+    </button>
+
+    <div class="pill-sep" aria-hidden="true"></div>
+
+    <!-- Mode pills -->
+    <button class="pill mode-pill active" data-mode="driving" title="Driving">
+      <span class="pill-icon">🚗</span>
+      <span class="pill-label">Drive</span>
+    </button>
+    <button class="pill mode-pill" data-mode="walking" title="Walking">
+      <span class="pill-icon">🚶</span>
+      <span class="pill-label">Walk</span>
+    </button>
+    <button class="pill mode-pill" data-mode="cycling" title="Cycling">
+      <span class="pill-icon">🚴</span>
+      <span class="pill-label">Cycle</span>
+    </button>
+  </div>
+</nav>
+
 
     <div class="stage">
       <!-- MAP -->

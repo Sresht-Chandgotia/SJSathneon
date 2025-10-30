@@ -1171,6 +1171,135 @@ async function chooseSuggestion(idx) {
     });
   }
 
+    // --------------------------------------
+  // NAVBAR: expandable search + compact pills
+  // (Insert right AFTER renderFavorites();)
+  // --------------------------------------
+  (function setupNavbarControls() {
+    const centerNav = document.querySelector('.center-nav');
+    if (!centerNav) return;
+
+    // Elements in the new nav markup (replace nav HTML first, see earlier message)
+    const navSearchToggle = document.getElementById('navSearchToggle');
+    const navSearchWrap = document.getElementById('navSearchWrap'); // wrapper around toggle + input
+    const navSearchInput = document.querySelector('#search'); // we keep existing id so autocomplete continues to work
+
+    const saveDestBtn = document.getElementById('saveDestBtn');
+    const clearDestBtnNav = document.getElementById('clearDestBtn');
+    const clearStartBtnNav = document.getElementById('clearStartBtnNav');
+    const modePills = document.querySelectorAll('.mode-pill');
+
+    // Open/close the nav search (adds .search-open to .center-nav)
+    function setNavSearchOpen(open) {
+      centerNav.classList.toggle('search-open', !!open);
+      if (navSearchToggle) navSearchToggle.setAttribute('aria-expanded', String(!!open));
+      if (open && navSearchInput) {
+        // move focus after a short delay to allow CSS width animation to complete visually
+        setTimeout(() => navSearchInput.focus(), 80);
+      } else if (navSearchInput) {
+        navSearchInput.blur();
+      }
+    }
+
+    // Toggle by clicking the search icon
+    navSearchToggle?.addEventListener('click', (ev) => {
+      const isOpen = centerNav.classList.contains('search-open');
+      setNavSearchOpen(!isOpen);
+      ev.stopPropagation();
+    });
+
+    // Close on Escape
+    document.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Escape' && centerNav.classList.contains('search-open')) {
+        setNavSearchOpen(false);
+      }
+    });
+
+    // Click outside to close when open
+    document.addEventListener('click', (ev) => {
+      if (!centerNav.classList.contains('search-open')) return;
+      if (!centerNav.contains(ev.target)) setNavSearchOpen(false);
+    });
+
+    // Keep panel search (if still present) in sync with navbar input
+    const panelSearchInput = document.querySelector('#blk-search input#search') || (function(){
+      // fallback: try to find an input in the search block that's not the nav input
+      const nodes = document.querySelectorAll('#blk-search input');
+      for (const n of nodes) if (n !== navSearchInput) return n;
+      return null;
+    })();
+
+    if (navSearchInput && panelSearchInput) {
+      navSearchInput.addEventListener('input', () => {
+        if (panelSearchInput.value !== navSearchInput.value) panelSearchInput.value = navSearchInput.value;
+      });
+      panelSearchInput.addEventListener('input', () => {
+        if (navSearchInput.value !== panelSearchInput.value) navSearchInput.value = panelSearchInput.value;
+      });
+    }
+
+    // Wire Save destination pill -> reuse existing addDestinationFavBtn logic (if present)
+    saveDestBtn?.addEventListener('click', async () => {
+      // If your existing button handler exists (addDestinationFavBtn), call it; else dispatch custom event
+      const existing = document.getElementById('addDestinationFavBtn');
+      if (existing) {
+        existing.click();
+        return;
+      }
+      // fallback: dispatch a custom event app code can listen to
+      document.dispatchEvent(new CustomEvent('nav:save-destination'));
+      // light UI feedback
+      saveDestBtn.classList.add('pressed');
+      setTimeout(() => saveDestBtn.classList.remove('pressed'), 350);
+    });
+
+    // Wire Clear destination pill -> reuse existing clearDestinationBtn logic (if present)
+    clearDestBtnNav?.addEventListener('click', () => {
+      const existing = document.getElementById('clearDestinationBtn');
+      if (existing) {
+        existing.click(); // triggers the clear logic already in this file
+        return;
+      }
+      document.dispatchEvent(new CustomEvent('nav:clear-destination'));
+    });
+
+    // Wire Clear start pill -> reuse existing clearStartBtn logic (if present)
+    clearStartBtnNav?.addEventListener('click', () => {
+      const existing = document.getElementById('clearStartBtn');
+      if (existing) {
+        existing.click();
+        return;
+      }
+      document.dispatchEvent(new CustomEvent('nav:clear-start'));
+    });
+
+    // Mode pills: set routing mode using your window.__NAV__ API (same as .mode-btn handlers)
+    modePills.forEach((p) => {
+      p.addEventListener('click', () => {
+        modePills.forEach(m => m.classList.remove('active'));
+        p.classList.add('active');
+        const mode = p.dataset.mode;
+        if (window.__NAV__ && typeof window.__NAV__.setRoutingMode === 'function') {
+          window.__NAV__.setRoutingMode(mode);
+          showPopup(`Mode: ${mode}`, 1100);
+        } else {
+          // fallback: also toggle your existing .mode-btn UI if present
+          const fallbackButtons = document.querySelectorAll('.mode-btn');
+          fallbackButtons.forEach(b => b.classList.toggle('active', b.dataset.mode === mode));
+          showPopup(`Mode changed to ${mode}`, 1100);
+        }
+      });
+    });
+
+    // Expose small helpers so other modules can control the nav search
+    document.addEventListener('nav:open-search', () => setNavSearchOpen(true));
+    document.addEventListener('nav:close-search', () => setNavSearchOpen(false));
+  })();
+  // --------------------------------------
+  // end navbar setup
+  // --------------------------------------
+
+
   // clear favorites button wiring
   document.getElementById("clearFavoritesBtn")?.addEventListener("click", () => {
     saveFavorites([]);
