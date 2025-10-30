@@ -554,31 +554,69 @@ const from = (startMarker && map.hasLayer(startMarker)) ? startMarker.getLatLng(
     }
   }
 
-  // On map click: create destination then snap and update route
-  map.on("click", async (e) => {
-    const initial = e.latlng;
-    // create marker immediately for good UI feedback
-    createDestinationMarker(initial);
-    // snap to nearest road then move the marker and update route
+  // On map click: snap first, then create/move destination marker and update route
+map.on("click", async (e) => {
+  const initial = e.latlng;
+
+  // Give immediate UI feedback: show a tiny temporary marker (optional)
+  // const temp = L.circleMarker(initial, { radius: 6, color: '#888', opacity: 0.6 }).addTo(map);
+  // setTimeout(() => map.removeLayer(temp), 1200);
+
+  try {
+    // Snap to road first (may return same point if snapping fails)
     const snapped = await snapToRoad(initial);
-    if (snapped) destinationMarker.setLatLng(snapped);
+
+    if (snapped) {
+      // Create or move destination marker only after snapping
+      createDestinationMarker(snapped);
+      // Ensure the marker position is set to snapped in case createDestinationMarker reused
+      if (destinationMarker) destinationMarker.setLatLng(snapped);
+    } else {
+      // fallback: put marker at clicked location
+      createDestinationMarker(initial);
+      if (destinationMarker) destinationMarker.setLatLng(initial);
+    }
+
+    // Now update route once
     updateRoute();
-  });
+  } catch (err) {
+    console.warn("Error handling map click destination:", err);
+    // fallback behavior
+    createDestinationMarker(initial);
+    updateRoute();
+  }
+});
+
 
   // Programmatic setDestination — used by search
-  async function setDestination(latlngLike, popupHtml) {
-    const latlng = L.latLng(latlngLike.lat ?? latlngLike[0], latlngLike.lng ?? latlngLike[1] ?? latlngLike.lon);
-    // create immediate marker for UX
-    createDestinationMarker(latlng, popupHtml);
-    // snap to road according to profile
+async function setDestination(latlngLike, popupHtml) {
+  const latlng = L.latLng(latlngLike.lat ?? latlngLike[0], latlngLike.lng ?? latlngLike[1] ?? latlngLike.lon);
+
+  try {
+    // Snap first (gives best routing results)
     const snapped = await snapToRoad(latlng);
-    if (snapped) {
-      destinationMarker.setLatLng(snapped);
-      if (popupHtml) destinationMarker.openPopup();
-    }
+
+    const finalLatLng = snapped || latlng;
+
+    // Create/move marker only after snap result
+    createDestinationMarker(finalLatLng, popupHtml);
+
+    // Ensure marker is at snapped location
+    if (destinationMarker) destinationMarker.setLatLng(finalLatLng);
+
+    // Now compute the route based on the snapped marker
+    updateRoute();
+
+    return destinationMarker;
+  } catch (err) {
+    console.warn("setDestination failed snapping:", err);
+    // fallback: create marker at requested location and update route
+    createDestinationMarker(latlng, popupHtml);
     updateRoute();
     return destinationMarker;
   }
+}
+
 
   // Expose functions to the rest of the app (added start functions)
   window.__NAV__ = window.__NAV__ || {};
