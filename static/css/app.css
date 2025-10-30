@@ -1226,3 +1226,41 @@ body {
 .panel-open .pill {
   padding: 6px 10px;
 }
+
+/* --- SEARCH SUGGESTIONS --- */
+.suggestions {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  width: 100%;
+  background: var(--hud-bg, #1b1f27);
+  border-radius: 8px;
+  margin-top: 4px;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
+  list-style: none;
+  padding: 0;
+  z-index: 9999;
+  display: none;
+}
+
+.suggestions.active {
+  display: block;
+}
+
+.suggestions li {
+  padding: 8px 12px;
+  cursor: pointer;
+  font-family: "Inter", sans-serif;
+  font-size: 14px;
+  color: var(--text-color, #ddd);
+  transition: background 0.2s ease;
+}
+
+.suggestions li:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.suggestions .highlight {
+  color: var(--accent, #4ea8de);
+  font-weight: 600;
+}

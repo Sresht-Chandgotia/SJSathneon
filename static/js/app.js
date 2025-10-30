@@ -1554,3 +1554,59 @@ if (hudToggle && hud && hudClose) {
     document.body.classList.remove("hud-open");
   });
 }
+
+document.addEventListener("DOMContentLoaded", () => {
+  const searchBox = document.getElementById("search");
+  const suggestionsList = document.createElement("ul");
+  suggestionsList.className = "suggestions";
+  searchBox.parentNode.appendChild(suggestionsList);
+  let debounceTimer;
+
+  async function fetchSuggestions(query) {
+    const res = await fetch(`/api/suggest?q=${encodeURIComponent(query)}`);
+    if (!res.ok) return [];
+    const data = await res.json();
+    return data.results || [];
+  }
+
+  function showSuggestions(items, query = "") {
+    suggestionsList.innerHTML = "";
+    if (!items.length) {
+      suggestionsList.classList.remove("active");
+      return;
+    }
+    suggestionsList.classList.add("active");
+
+    items.forEach((item) => {
+      const li = document.createElement("li");
+      const regex = new RegExp(query, "gi");
+      li.innerHTML = item.display_name.replace(
+        regex,
+        (match) => `<span class="highlight">${match}</span>`
+      );
+      li.addEventListener("click", () => {
+        searchBox.value = item.display_name;
+        suggestionsList.classList.remove("active");
+        searchBox.dispatchEvent(new Event("change"));
+      });
+      suggestionsList.appendChild(li);
+    });
+  }
+
+  searchBox.addEventListener("input", () => {
+    const query = searchBox.value.trim();
+    clearTimeout(debounceTimer);
+    if (!query) {
+      suggestionsList.classList.remove("active");
+      return;
+    }
+    debounceTimer = setTimeout(async () => {
+      const results = await fetchSuggestions(query);
+      showSuggestions(results, query);
+    }, 300);
+  });
+
+  searchBox.addEventListener("blur", () => {
+    setTimeout(() => suggestionsList.classList.remove("active"), 150);
+  });
+});
