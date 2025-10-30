@@ -33,6 +33,14 @@
   <body class="theme-dark">
     <nav class="center-nav" aria-label="Top navigation">
   <div class="nav-left">
+    <button
+            id="hudToggle"
+            class="rail-tab"
+            aria-label="Open Control Panel"
+            aria-expanded="false"
+          >
+            ☰
+          </button>
     <!-- Search toggle + expandable input -->
     <div class="nav-search hud-search-wrapper" id="navSearchWrap">
       <button
@@ -102,7 +110,7 @@
       <!-- RIGHT RAIL (collapsed) + PANEL (expanded) -->
       <aside id="hud" class="hud">
         <!-- COLLAPSED RAIL -->
-        <div class="rail">
+        <!-- <div class="rail">
           <button
             id="hudToggle"
             class="rail-tab"
@@ -125,7 +133,7 @@
               💡
             </button>
           </div>
-        </div>
+        </div> -->
 
         <!-- EXPANDING PANEL -->
         <div
@@ -145,14 +153,14 @@
           </header>
 
           <div class="panel-scroll">
-            <section class="block" id="blk-search">
+            <!-- <section class="block" id="blk-search">
               <label class="label">Search</label>
               <input
                 id="search"
                 class="hud-input"
                 placeholder="Search places (e.g., 'hospital near Andheri')"
               />
-            </section>
+            </section> -->
 
             <section class="block" id="blk-categories">
             <label class="label">Quick Categories</label>
@@ -170,7 +178,7 @@
 
 
             <section class="block" id="blk-modes">
-              <label class="label">Mode</label>
+              <!-- <label class="label">Mode</label>
               <div class="mode-row">
                 <button
                   class="mode-btn active"
@@ -185,7 +193,7 @@
                 <button class="mode-btn" data-mode="cycling" title="Cycling">
                   🚴
                 </button>
-              </div>
+              </div> -->
             </section>
 
             <section class="block" id="blk-favorites">
