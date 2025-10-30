@@ -94,6 +94,11 @@
       userCircle.setRadius(radius);
     }
 
+  window.__NAV__ = window.__NAV__ || {};
+  window.__NAV__.userLocation = { lat: lat, lng: lon };
+
+  
+
     if (!hasCentered) {
       map.setView(latlng, 15);
       hasCentered = true;
@@ -105,7 +110,10 @@
         window.__NAV__.routeControl.setWaypoints([latlng, window.__NAV__.destinationMarker.getLatLng()]);
       } catch (e) { console.warn("Failed to update route waypoints:", e); }
     }
+    
   }
+
+
 
   // native geolocation watch (keep yours)
   function startHighAccuracyWatch() {

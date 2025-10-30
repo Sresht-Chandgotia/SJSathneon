@@ -34,16 +34,9 @@ document.addEventListener("DOMContentLoaded", () => {
   // --- SEARCH BAR FUNCTIONALITY ---
   const searchInput = document.getElementById("search");
 
-  if (searchInput) {
-    searchInput.addEventListener("keydown", async (e) => {
-      if (e.key === "Enter") {
-        e.preventDefault();
-        const query = searchInput.value.trim();
-        if (!query) return showPopup("Please type a location to search!");
-        await searchPlace(query);
-      }
-    });
-  }
+  // NOTE: the old simple Enter handler was removed and replaced by the
+  // advanced autocomplete below (it still calls searchPlace(query) when Enter
+  // is pressed with no focused suggestion).
 
   async function searchPlace(query) {
     const map = window.__NAV__?.map;
@@ -104,7 +97,6 @@ document.addEventListener("DOMContentLoaded", () => {
       showPopup("Error while searching. Check console for details.");
     }
   }
-
 
   // --- CATEGORY SEARCH + POPUPS ---
   const categoryButtons = document.querySelectorAll(".chip");
@@ -210,38 +202,303 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
-  // ==========================
-// CLEAR DESTINATION BUTTON
-// ==========================
-const clearDestBtn = document.getElementById("clearDestinationBtn");
-if (clearDestBtn) {
-  clearDestBtn.addEventListener("click", () => {
-    // Use map.js clearDestination() if available
-    if (window.__NAV__ && typeof window.__NAV__.clearDestination === "function") {
-      window.__NAV__.clearDestination();
-      showPopup("Destination removed");
-    } else {
-      // fallback safety
-      try {
-        const map = window.__NAV__?.map;
-        if (window.__NAV__?.destinationMarker && map) {
-          if (map.hasLayer(window.__NAV__.destinationMarker)) map.removeLayer(window.__NAV__.destinationMarker);
-          window.__NAV__.destinationMarker = null;
+  // ==============================
+  // Advanced Search + Autocomplete
+  // ==============================
+  // This block replaces the simple Enter-key search and provides suggestions, keyboard navigation,
+  // debounce + abort, caching, and uses window.__NAV__.setDestination(...) when a suggestion is chosen.
+  (function setupAdvancedSearch() {
+    const searchInput = document.getElementById("search");
+    if (!searchInput) return;
+
+    // Wrap search input in container to position dropdown
+    let wrapper = searchInput.parentElement;
+    if (!wrapper.classList.contains("hud-search-wrapper")) {
+      const w = document.createElement("div");
+      w.className = "hud-search-wrapper";
+      searchInput.parentElement.insertBefore(w, searchInput);
+      w.appendChild(searchInput);
+      wrapper = w;
+    }
+
+    const list = document.createElement("div");
+    list.className = "autocomplete-list";
+    list.style.display = "none";
+    wrapper.appendChild(list);
+
+    const loadingNode = document.createElement("div");
+    loadingNode.className = "autocomplete-loading";
+    loadingNode.textContent = "Searching...";
+    const emptyNode = document.createElement("div");
+    emptyNode.className = "autocomplete-empty";
+    emptyNode.textContent = "No results";
+
+    let debounceTimer = null;
+    let lastQuery = "";
+    let abortController = null;
+    const cache = new Map();
+    let focusedIndex = -1;
+    let currentSuggestions = [];
+
+    function showList() { list.style.display = ""; }
+    function hideList() { list.style.display = "none"; focusedIndex = -1; updateSelection(); }
+
+    function renderSuggestions(items) {
+      list.innerHTML = "";
+      if (!items || items.length === 0) {
+        list.appendChild(emptyNode);
+        showList();
+        return;
+      }
+      items.forEach((it, idx) => {
+        const el = document.createElement("div");
+        el.className = "autocomplete-item";
+        el.setAttribute("role", "option");
+        el.setAttribute("data-idx", idx);
+        el.tabIndex = -1;
+
+        const title = document.createElement("div");
+        title.className = "autocomplete-title";
+        title.innerHTML = it.display_name.split(",")[0];
+        const sub = document.createElement("div");
+        sub.className = "autocomplete-sub";
+        sub.textContent = it.address ? composeAddress(it.address) : (it.display_name || "");
+        el.appendChild(title);
+        el.appendChild(sub);
+
+        el.addEventListener("mousedown", (ev) => {
+          ev.preventDefault();
+          chooseSuggestion(idx);
+        });
+
+        list.appendChild(el);
+      });
+      showList();
+    }
+
+    function updateSelection() {
+      const children = Array.from(list.querySelectorAll(".autocomplete-item"));
+      children.forEach((c, i) => {
+        c.setAttribute("aria-selected", String(i === focusedIndex));
+        if (i === focusedIndex) c.scrollIntoView({ block: "nearest", behavior: "auto" });
+      });
+    }
+
+    function composeAddress(addrObj) {
+      const parts = [];
+      if (addrObj.road) parts.push(addrObj.road);
+      if (addrObj.suburb) parts.push(addrObj.suburb);
+      if (addrObj.city) parts.push(addrObj.city);
+      else if (addrObj.town) parts.push(addrObj.town);
+      else if (addrObj.village) parts.push(addrObj.village);
+      if (addrObj.state && parts.indexOf(addrObj.state) === -1) parts.push(addrObj.state);
+      if (addrObj.country) parts.push(addrObj.country);
+      return parts.join(", ");
+    }
+
+      async function fetchSuggestions(query) {
+  if (!query || query.length < 2) return [];
+
+  // cancel previous request
+  if (abortController) {
+    try { abortController.abort(); } catch (e) {}
+  }
+  abortController = new AbortController();
+  const signal = abortController.signal;
+
+  // Use a slightly larger limit so we can pick the closest among more candidates
+  const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&limit=10&q=${encodeURIComponent(query)}&accept-language=en`;
+
+  try {
+    list.innerHTML = "";
+    list.appendChild(loadingNode);
+    showList();
+
+    const res = await fetch(url, { signal, headers: { "Referer": window.location.origin } });
+    if (!res.ok) throw new Error("Fetch failed");
+    const data = await res.json();
+    const rawItems = (Array.isArray(data) ? data : []).map(d => ({
+      display_name: d.display_name,
+      lat: parseFloat(d.lat),
+      lon: parseFloat(d.lon),
+      address: d.address || null,
+      type: d.type || null
+    }));
+
+    // Compute distances relative to the current live location each time (don't cache distances)
+    const map = window.__NAV__?.map;
+    // Prefer explicit live location from map module if available
+    let liveLatLng = null;
+    if (window.__NAV__?.userLocation) {
+      liveLatLng = L.latLng(window.__NAV__.userLocation.lat, window.__NAV__.userLocation.lng);
+    } else if (map) {
+      liveLatLng = map.getCenter();
+    }
+
+    const itemsWithDistance = rawItems.map(it => {
+      let distance = null;
+      if (liveLatLng && !Number.isNaN(it.lat) && !Number.isNaN(it.lon)) {
+        try {
+          distance = L.latLng(it.lat, it.lon).distanceTo(liveLatLng); // meters
+        } catch (e) { distance = null; }
+      }
+      return Object.assign({}, it, { distance });
+    });
+
+    // Sort by computed distance (closest first); null distances go to the end
+    itemsWithDistance.sort((a, b) => {
+      if (a.distance == null && b.distance == null) return 0;
+      if (a.distance == null) return 1;
+      if (b.distance == null) return -1;
+      return a.distance - b.distance;
+    });
+
+    // (Optional) cache rawItems keyed by query if you want to avoid refetching,
+    // but do NOT cache distances. If you prefer caching, use:
+    // cache.set(query, rawItems);
+
+    return itemsWithDistance;
+  } catch (err) {
+    if (err.name === "AbortError") return [];
+    console.warn("Autocomplete fetch error:", err);
+    return [];
+  }
+}
+
+
+
+    async function onInputChanged(e) {
+      const q = (e.target.value || "").trim();
+      lastQuery = q;
+      if (debounceTimer) clearTimeout(debounceTimer);
+      if (!q || q.length < 2) {
+        hideList();
+        return;
+      }
+      debounceTimer = setTimeout(async () => {
+        const items = await fetchSuggestions(q);
+        if (lastQuery !== q) return;
+        currentSuggestions = items;
+        focusedIndex = -1;
+        renderSuggestions(items);
+      }, 300);
+    }
+
+    async function chooseSuggestion(idx) {
+      const item = currentSuggestions[idx];
+      if (!item) return;
+      searchInput.value = item.display_name;
+      hideList();
+
+      if (window.__NAV__ && typeof window.__NAV__.setDestination === "function") {
+        try {
+          await window.__NAV__.setDestination({ lat: item.lat, lng: item.lon }, `<strong>${escapeHtml(item.display_name)}</strong>`);
+          const m = window.__NAV__.map;
+          if (m) m.setView([item.lat, item.lon], 15);
+        } catch (err) {
+          console.warn("Failed to set destination from search:", err);
         }
-        if (window.__NAV__?.routeControl && map) {
-          map.removeControl(window.__NAV__.routeControl);
-          window.__NAV__.routeControl = null;
-        }
-        showPopup("Destination removed");
-      } catch (e) {
-        console.warn("Could not clear destination:", e);
-        showPopup("Unable to remove destination (check console).");
+      } else {
+        try {
+          const m = window.__NAV__?.map;
+          const markers = window.__NAV__?.markersLayer;
+          if (markers) {
+            L.marker([item.lat, item.lon]).addTo(markers).bindPopup(`<strong>${escapeHtml(item.display_name)}</strong>`).openPopup();
+          } else if (m) {
+            L.marker([item.lat, item.lon]).addTo(m).bindPopup(`<strong>${escapeHtml(item.display_name)}</strong>`).openPopup();
+            m.setView([item.lat, item.lon], 15);
+          }
+        } catch (e) { console.warn(e); }
       }
     }
-  });
-}
- 
-const modeButtons = document.querySelectorAll(".mode-btn");
+
+    searchInput.addEventListener("keydown", (ev) => {
+      const key = ev.key;
+      if (list.style.display === "none") {
+        // If no suggestion list, allow default handling; e.g., Enter -> full search
+        if (key === "Enter") {
+          ev.preventDefault();
+          const q = (searchInput.value || "").trim();
+          if (q.length > 0) {
+            if (typeof searchPlace === "function") searchPlace(q);
+          }
+        }
+        return;
+      }
+      if (key === "ArrowDown") {
+        ev.preventDefault();
+        if (currentSuggestions.length === 0) return;
+        focusedIndex = Math.min(currentSuggestions.length - 1, focusedIndex + 1);
+        updateSelection();
+      } else if (key === "ArrowUp") {
+        ev.preventDefault();
+        if (currentSuggestions.length === 0) return;
+        focusedIndex = Math.max(0, focusedIndex - 1);
+        updateSelection();
+      } else if (key === "Enter") {
+        if (focusedIndex >= 0 && focusedIndex < currentSuggestions.length) {
+          ev.preventDefault();
+          chooseSuggestion(focusedIndex);
+        } else {
+          ev.preventDefault();
+          const q = (searchInput.value || "").trim();
+          if (q.length > 0) {
+            if (typeof searchPlace === "function") searchPlace(q);
+          }
+        }
+      } else if (key === "Escape") {
+        hideList();
+      }
+    });
+
+    searchInput.addEventListener("input", onInputChanged);
+
+    searchInput.addEventListener("blur", () => {
+      setTimeout(() => hideList(), 180);
+    });
+
+    function escapeHtml(s) {
+      return s.replace(/[&<>"']/g, (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[m]));
+    }
+
+    document.addEventListener("click", (ev) => {
+      if (!wrapper.contains(ev.target)) hideList();
+    });
+
+  })();
+
+  // ==========================
+  // CLEAR DESTINATION BUTTON
+  // ==========================
+  const clearDestBtn = document.getElementById("clearDestinationBtn");
+  if (clearDestBtn) {
+    clearDestBtn.addEventListener("click", () => {
+      // Use map.js clearDestination() if available
+      if (window.__NAV__ && typeof window.__NAV__.clearDestination === "function") {
+        window.__NAV__.clearDestination();
+        showPopup("Destination removed");
+      } else {
+        // fallback safety
+        try {
+          const map = window.__NAV__?.map;
+          if (window.__NAV__?.destinationMarker && map) {
+            if (map.hasLayer(window.__NAV__.destinationMarker)) map.removeLayer(window.__NAV__.destinationMarker);
+            window.__NAV__.destinationMarker = null;
+          }
+          if (window.__NAV__?.routeControl && map) {
+            map.removeControl(window.__NAV__.routeControl);
+            window.__NAV__.routeControl = null;
+          }
+          showPopup("Destination removed");
+        } catch (e) {
+          console.warn("Could not clear destination:", e);
+          showPopup("Unable to remove destination (check console).");
+        }
+      }
+    });
+  }
+
+  const modeButtons = document.querySelectorAll(".mode-btn");
   modeButtons.forEach((btn) => {
     btn.addEventListener("click", () => {
       const mode = btn.dataset.mode;
@@ -255,5 +512,5 @@ const modeButtons = document.querySelectorAll(".mode-btn");
       }
     });
   });
-  
+
 });
