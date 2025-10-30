@@ -676,10 +676,10 @@ body.hud-open .center-nav {
 /* === Frosted Glass Blue Tint (Improved Readability) === */
 .rail,
 .panel {
-  background: rgba(30, 45, 70, 0.4); /* deeper blue-gray for contrast */
+  background: rgba(161, 195, 255, 0.4); /* deeper blue-gray for contrast */
   backdrop-filter: blur(14px) saturate(150%);
   -webkit-backdrop-filter: blur(14px) saturate(150%);
-  border: 1px solid rgba(120, 180, 255, 0.25);
+  border: 1px solid rgba(255, 255, 255, 0.25);
   box-shadow: 0 4px 25px rgba(0, 60, 130, 0.2);
 }
 
@@ -689,13 +689,13 @@ body.hud-open .center-nav {
 .panel,
 .panel .label,
 .panel .pill-label {
-  color: #dce7f5 !important; /* soft steel blue-white */
+  color: #282a2e !important; /* soft steel blue-white */
 }
 
 /* Headings (like “Quick Categories”, “Status”) */
 .panel h3,
 .panel .section-title {
-  color: #a8c8ff !important; /* light azure for clarity */
+  color: #1c2129 !important; /* light azure for clarity */
   font-weight: 600;
 }
 
@@ -705,7 +705,7 @@ body.hud-open .center-nav {
 .panel .pill-value {
   color: #1b2f4d !important; /* dark navy text */
   background: rgba(255, 255, 255, 0.65);
-  border: 1px solid rgba(255, 255, 255, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.363);
   font-weight: 600;
   transition: all 0.2s ease;
 }
@@ -731,4 +731,33 @@ body.hud-open .center-nav {
 }
 .close-btn:hover {
   color: #0077ff !important;
+}
+
+/* Remove any white behind the rail */
+body,
+html,
+#map {
+  background: transparent !important;
+}
+
+html,
+body {
+  height: 100%;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  background: transparent; /* keeps HUD blending clean */
+}
+
+#map {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: 0; /* ensures UI (rail/panel/nav) stays on top */
+}
+
+.panel {
+  border-radius: 15px;
 }
