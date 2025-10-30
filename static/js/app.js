@@ -153,6 +153,61 @@ function escapeHtml(s) {
   }[m]));
 }
 
+/* ----------------------
+   Favorites helpers
+   ---------------------- */
+const FAV_KEY = "navhud:favorites";
+
+function getFavorites() {
+  try { return JSON.parse(localStorage.getItem(FAV_KEY) || "[]"); }
+  catch (e) { return []; }
+}
+function saveFavorites(list) {
+  try { localStorage.setItem(FAV_KEY, JSON.stringify(list || [])); } catch (e) {}
+}
+function isFavorite(poi) {
+  const favs = getFavorites();
+  return favs.some(f => f.id === poi.id && f.type === poi.type);
+}
+function toggleFavorite(poi) {
+  const favs = getFavorites();
+  const idx = favs.findIndex(f => f.id === poi.id && f.type === poi.type);
+  if (idx >= 0) {
+    favs.splice(idx, 1);
+    saveFavorites(favs);
+    return false;
+  } else {
+    favs.push({
+      id: poi.id,
+      type: poi.type,
+      lat: poi.lat,
+      lon: poi.lon,
+      name: poi.tags?.name || poi.name || ""
+    });
+    saveFavorites(favs);
+    return true;
+  }
+}
+
+// Add a POI object to favorites (id,type,lat,lon,tags,name optional)
+function addFavoriteFromPOI(poi) {
+  // make sure shape matches storage expectations
+  const obj = {
+    id: poi.id ?? `${poi.type || 'poi'}:${(poi.lat||'')},${(poi.lon||'')}`,
+    type: poi.type || (poi.tags && (poi.tags.amenity || poi.tags.shop)) || 'place',
+    lat: Number(poi.lat),
+    lon: Number(poi.lon),
+    name: poi.tags?.name || poi.name || poi.display_name || ''
+  };
+  // toggleFavorite uses same shape (id + type)
+  const nowFav = toggleFavorite(obj);
+  // refresh UI
+  renderFavorites?.();
+  return nowFav;
+}
+
+
+
 // Robust findNearby with lightweight-first queries, retries, and endpoint fallbacks
 async function findNearby(type, lat, lon) {
   const map = window.__NAV__?.map;
@@ -324,35 +379,75 @@ async function findNearby(type, lat, lon) {
   const toShow = items.slice(0, maxResults);
 
   // Add markers + click handler to set destination
+    // Render markers (with favorite + go behavior) using helper
+  renderNearbyItems(toShow, type, lat, lon);
+
+
+  showPopup(`Found ${items.length} ${type}(s). Showing closest ${toShow.length}.`, 3500);
+}
+
+// renderNearbyItems: draws markers for an array of items and wires favorite / go behaviour
+function renderNearbyItems(items, categoryType, centerLat, centerLon) {
+  const map = window.__NAV__?.map;
+  const markersLayer = window.__NAV__?.markersLayer;
+  if (!map || !markersLayer) return;
+
+  // compute distances (ensure data has them)
+  items.forEach(it => {
+    try { it.distance = map.distance([centerLat, centerLon], [it.lat, it.lon]); } catch (e) { it.distance = null; }
+  });
+
+  items.sort((a,b) => (a.distance||Infinity) - (b.distance||Infinity));
+  const maxResults = 12;
+  const toShow = items.slice(0, maxResults);
+
   toShow.forEach((it, idx) => {
-    const name = it.tags.name || type.toUpperCase();
+    const name = it.tags && it.tags.name ? it.tags.name : (it.tags?.operator || categoryType.toUpperCase());
     const distText = (it.distance == null) ? "" : (it.distance < 1000 ? `${Math.round(it.distance)} m` : `${(it.distance/1000).toFixed(2)} km`);
-    const popupHtml = `<strong>${escapeHtml(name)}</strong><br>${escapeHtml(type)}${distText ? ` — ${distText}` : ""}`;
+    const fav = isFavorite(it);
+    const favLabel = fav ? "★ Favorited" : "☆ Favorite";
+
+    const popupHtml = `<div style="min-width:170px">
+      <strong>${escapeHtml(name)}</strong><br/>
+      <small style="color:#888">${escapeHtml(categoryType)}${distText ? ` — ${distText}` : ""}</small>
+      <div style="margin-top:8px; display:flex; gap:8px; align-items:center;">
+        <button data-action="goto" data-lat="${it.lat}" data-lon="${it.lon}" class="chip">Go</button>
+        <button data-action="fav" data-id="${escapeHtml(it.id)}" class="chip">${favLabel}</button>
+      </div>
+    </div>`;
 
     const marker = L.marker([it.lat, it.lon]).addTo(markersLayer);
     marker.bindPopup(popupHtml);
 
-    marker.on("click", async () => {
-      try {
-        if (window.__NAV__ && typeof window.__NAV__.setDestination === "function") {
-          await window.__NAV__.setDestination({ lat: it.lat, lng: it.lon }, popupHtml);
-          const m = window.__NAV__.map;
-          if (m) m.setView([it.lat, it.lon], 15);
-        } else {
-          marker.openPopup();
-        }
-      } catch (err) {
-        console.warn("Failed to set destination from marker click:", err);
-        marker.openPopup();
-      }
+    marker.on("popupopen", (ev) => {
+      const popupEl = ev.popup.getElement();
+      if (!popupEl) return;
+
+      const gotoBtn = popupEl.querySelector('button[data-action="goto"]');
+      if (gotoBtn) gotoBtn.addEventListener("click", async () => {
+        try {
+          if (window.__NAV__?.setDestination) {
+            await window.__NAV__.setDestination({ lat: it.lat, lng: it.lon }, `<strong>${escapeHtml(name)}</strong>`);
+            window.__NAV__.map.setView([it.lat, it.lon], 15);
+          } else {
+            marker.openPopup();
+          }
+        } catch (e) { console.warn(e); marker.openPopup(); }
+      });
+
+      const favBtn = popupEl.querySelector('button[data-action="fav"]');
+if (favBtn) favBtn.addEventListener("click", (e) => {
+  const nowFav = addFavoriteFromPOI(it);
+  favBtn.textContent = nowFav ? "★ Favorited" : "☆ Favorite";
+  // keep popup open or close as you prefer; here we keep it open
+});
+
     });
 
-    // optionally open the popup for the first (closest) marker
     if (idx === 0) marker.openPopup();
   });
-
-  showPopup(`Found ${items.length} ${type}(s). Showing closest ${toShow.length}.`, 3500);
 }
+
 
 
 
@@ -554,6 +649,11 @@ async function findNearby(type, lat, lon) {
         }
       } else {
         try {
+          // create a small poi object and save
+          const poi = { id: `search:${Date.now()}`, type: item.type || 'search', lat: item.lat, lon: item.lon, name: item.display_name };
+          addFavoriteFromPOI(poi);
+          showPopup("Added to favorites", 1600);
+
           const m = window.__NAV__?.map;
           const markers = window.__NAV__?.markersLayer;
           if (markers) {
@@ -651,6 +751,78 @@ async function findNearby(type, lat, lon) {
       }
     });
   }
+
+  // Render Favorites list in HUD
+function renderFavorites() {
+  const container = document.getElementById("favoritesList");
+  if (!container) return;
+  container.innerHTML = "";
+  const favs = getFavorites();
+  if (!favs || favs.length === 0) {
+    container.innerHTML = `<div style="color:var(--muted);font-size:13px;">No favorites yet</div>`;
+    return;
+  }
+  favs.forEach((f) => {
+    const el = document.createElement("div");
+    el.style.display = "flex";
+    el.style.justifyContent = "space-between";
+    el.style.alignItems = "center";
+    el.style.gap = "8px";
+    el.style.padding = "8px 6px";
+    el.style.borderRadius = "8px";
+    el.style.background = "rgba(255,255,255,0.02)";
+    el.innerHTML = `
+      <div style="flex:1;min-width:0;">
+        <div style="font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
+          ${escapeHtml(f.name || f.type)}
+        </div>
+        <div style="font-size:12px;color:var(--muted)">${escapeHtml(f.type)}</div>
+      </div>
+      <div style="display:flex;gap:6px;">
+        <button class="chip fav-go" data-lat="${f.lat}" data-lon="${f.lon}" style="padding:6px 8px;">Go</button>
+        <button class="chip fav-remove" data-id="${escapeHtml(f.id)}" style="padding:6px 8px;">Remove</button>
+      </div>
+    `;
+    container.appendChild(el);
+
+    el.querySelector(".fav-go")?.addEventListener("click", async () => {
+      if (window.__NAV__?.setDestination) {
+        await window.__NAV__.setDestination({ lat: f.lat, lng: f.lon }, `<strong>${escapeHtml(f.name || f.type)}</strong>`);
+        window.__NAV__.map.setView([f.lat, f.lon], 15);
+      }
+    });
+    el.querySelector(".fav-remove")?.addEventListener("click", () => {
+      toggleFavorite({ id: f.id, type: f.type });
+      renderFavorites();
+    });
+  });
+}
+
+// clear favorites button wiring
+document.getElementById("clearFavoritesBtn")?.addEventListener("click", () => {
+  saveFavorites([]);
+  renderFavorites();
+});
+
+document.getElementById("addDestinationFavBtn")?.addEventListener("click", async () => {
+  try {
+    const dest = window.__NAV__?.destinationMarker;
+    if (!dest) return showPopup("No destination set to save.", 2200);
+
+    const latlng = dest.getLatLng();
+    // try to get name if popup exists
+    const name = (dest && dest.getPopup && dest.getPopup() && dest.getPopup().getContent) ? dest.getPopup().getContent() : "Saved place";
+    const poi = { id: `dest:${Date.now()}`, type: "destination", lat: latlng.lat, lon: latlng.lng, name };
+    const nowFav = addFavoriteFromPOI(poi);
+    showPopup(nowFav ? "Saved to favorites" : "Removed from favorites", 2000);
+  } catch (e) { console.warn(e); showPopup("Could not save destination", 2200); }
+});
+
+
+// initial render on load
+renderFavorites();
+
+
 
   const modeButtons = document.querySelectorAll(".mode-btn");
   modeButtons.forEach((btn) => {

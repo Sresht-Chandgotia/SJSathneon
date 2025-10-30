@@ -141,7 +141,16 @@
               </div>
             </section>
 
-            
+            <section class="block" id="blk-favorites">
+            <label class="label">Favorites</label>
+            <div id="favoritesList" style="display:flex;flex-direction:column;gap:8px;">
+              <!-- favorites will be rendered here -->
+            </div>
+            <div style="margin-top:8px;">
+              <button id="clearFavoritesBtn" class="chip" title="Clear all favorites">Clear favorites</button>
+            </div>
+          </section>
+
 
 
           <section class="block" id="blk-status">
@@ -159,6 +168,8 @@
                 </button>
               </div>
             </div>
+
+            <button id="addDestinationFavBtn" class="chip" title="Add destination to favorites">☆ Save destination</button>
 
             <!-- ROUTE INFO (populated by JS when a route is found) -->
             <div style="margin-top:10px; display:flex; gap:10px; align-items:center; font-family: Inter, sans-serif;">
