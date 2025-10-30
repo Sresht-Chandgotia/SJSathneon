@@ -820,3 +820,9 @@ body {
   text-align: center;
   font-size: 13px;
 }
+
+/* add to your style block */
+.pulse-dot.no-pulse-during-fly::after { 
+  display: none !important; 
+  animation: none !important;
+}

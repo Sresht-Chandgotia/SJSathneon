@@ -98,11 +98,91 @@
   window.__NAV__.userLocation = { lat: lat, lng: lon };
 
   
+// center the map on first good live location — hide "cloud" during animation
+if (!hasCentered) {
+  let zoom;
+  if (accuracy <= 20) zoom = 18;
+  else if (accuracy <= 50) zoom = 17;
+  else if (accuracy <= 150) zoom = 16;
+  else zoom = 15;
 
-    if (!hasCentered) {
-      map.setView(latlng, 15);
-      hasCentered = true;
+  try {
+    // stop any current animation to avoid jumpiness
+    if (typeof map.stop === "function") map.stop();
+
+    // compute duration based on distance (clamped)
+    let duration = 1.0;
+    try {
+      const distMeters = map.distance(map.getCenter(), latlng);
+      duration = Math.min(3.0, Math.max(1.0, distMeters / 900));
+    } catch (e) { /* fallback */ }
+
+    // ---- TEMPORARILY SUPPRESS VISUALS THAT CAUSE THE "CLOUD" ----
+    // 1) hide/low-opacity the accuracy circle if present
+    const originalCircleStyle = userCircle ? {
+      fillOpacity: userCircle.options.fillOpacity,
+      opacity: userCircle.options.opacity
+    } : null;
+    if (userCircle) {
+      try {
+        userCircle.setStyle({ fillOpacity: 0, opacity: 0 });
+      } catch (e) { /* ignore */ }
     }
+
+    // 2) suppress the pulse animation on the marker DOM element if available
+    let markerEl = null;
+    try {
+      markerEl = userMarker && typeof userMarker.getElement === "function" ? userMarker.getElement() : null;
+      if (markerEl) {
+        const dot = markerEl.querySelector(".pulse-dot");
+        if (dot) dot.classList.add("no-pulse-during-fly");
+      }
+    } catch (e) { /* ignore */ }
+
+    // prepare restore function
+    const restoreVisuals = () => {
+      try {
+        if (userCircle && originalCircleStyle) {
+          userCircle.setStyle({ fillOpacity: originalCircleStyle.fillOpacity, opacity: originalCircleStyle.opacity });
+        }
+      } catch (e) { /* ignore */ }
+      try {
+        if (markerEl) {
+          const dot = markerEl.querySelector(".pulse-dot");
+          if (dot) dot.classList.remove("no-pulse-during-fly");
+        }
+      } catch (e) { /* ignore */ }
+    };
+
+    // listen for map movement end (fires after flyTo finishes)
+    const onMoveEnd = () => {
+      restoreVisuals();
+      map.off("moveend", onMoveEnd);
+    };
+    map.on("moveend", onMoveEnd);
+
+    // do the smooth fly
+    map.flyTo(latlng, zoom, { animate: true, duration, easeLinearity: 0.12 });
+  } catch (e) {
+    // fallback: setView and restore visuals immediately
+    try { map.setView(latlng, zoom); } catch (err) {}
+    if (userCircle) {
+      try { userCircle.setStyle({ fillOpacity: originalCircleStyle ? originalCircleStyle.fillOpacity : 0.04, opacity: originalCircleStyle ? originalCircleStyle.opacity : 0.85 }); } catch (err) {}
+    }
+    try {
+      const markerEl2 = userMarker && typeof userMarker.getElement === "function" ? userMarker.getElement() : null;
+      if (markerEl2) {
+        const dot2 = markerEl2.querySelector(".pulse-dot");
+        if (dot2) dot2.classList.remove("no-pulse-during-fly");
+      }
+    } catch (err) {}
+  }
+
+  hasCentered = true;
+}
+
+
+
 
     // update route start if route exists
     if (window.__NAV__?.routeControl && window.__NAV__.destinationMarker) {

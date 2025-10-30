@@ -142,65 +142,219 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   });
 
-  async function findNearby(type, lat, lon) {
-    const map = window.__NAV__?.map;
-    const markersLayer = window.__NAV__?.markersLayer;
-    const clearMarkers = window.__NAV__?.clearMarkers;
-    if (!map || !markersLayer || !clearMarkers) return;
+  // small helper: escape HTML for safe popups
+function escapeHtml(s) {
+  return String(s || "").replace(/[&<>"']/g, (m) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;"
+  }[m]));
+}
 
-    clearMarkers();
-    showPopup(`Searching nearby ${type}s...`);
+// Robust findNearby with lightweight-first queries, retries, and endpoint fallbacks
+async function findNearby(type, lat, lon) {
+  const map = window.__NAV__?.map;
+  const markersLayer = window.__NAV__?.markersLayer;
+  const clearMarkers = window.__NAV__?.clearMarkers;
+  if (!map || !markersLayer || !clearMarkers) return;
 
-    let tag = "";
-    if (type === "hospital") tag = "amenity=hospital";
-    else if (type === "atm") tag = "amenity=atm";
-    else if (type === "fuel") tag = "amenity=fuel";
+  clearMarkers();
+  showPopup(`Searching nearby ${type}s...`);
 
-    let radius = 3000; // default 3 km
-    const zoom = map.getZoom();
-    if (zoom >= 15) radius = 1500;
-    else if (zoom >= 13) radius = 2500;
-    else if (zoom >= 10) radius = 4000;
+  const categoryTagMap = {
+    hospital: ["amenity=hospital"],
+    atm: ["amenity=atm"],
+    fuel: ["amenity=fuel","shop=fuel"],
+    restaurant: ["amenity=restaurant"],
+    cafe: ["amenity=cafe"],
+    pharmacy: ["amenity=pharmacy"],
+    supermarket: ["shop=supermarket","amenity=supermarket"],
+    parking: ["amenity=parking"],
+  };
+  const tagFilters = categoryTagMap[type] || [];
+  if (tagFilters.length === 0) {
+    showPopup(`Unknown category: ${type}`, 2500);
+    return;
+  }
 
-    const overpassUrl = `https://overpass-api.de/api/interpreter?data=[out:json][timeout:25];
-      node[${tag}](around:${radius},${lat},${lon});
-      out;`;
+  // Choose radius by zoom (conservative if low zoom)
+  let radius = 3000;
+  const zoom = map.getZoom();
+  if (zoom >= 15) radius = 1200;
+  else if (zoom >= 13) radius = 2200;
+  else if (zoom >= 10) radius = 3500;
+  // cap radius to avoid massive queries
+  radius = Math.min(radius, 5000);
 
+  // Overpass endpoints to try (primary first, then mirrors)
+  const endpoints = [
+    "https://overpass-api.de/api/interpreter",
+    "https://overpass.kumi.systems/api/interpreter",
+    "https://overpass.openstreetmap.fr/api/interpreter"
+  ];
+
+  // Build a simple nodes-only query for the first attempt (cheaper)
+  function buildNodesOnlyQuery(tags) {
+    const parts = tags.map(t => {
+      const [k,v] = t.split("=");
+      return `node[${k}=${v}](around:${radius},${lat},${lon});`;
+    }).join("\n");
+    return `[out:json][timeout:25];\n${parts}\nout;`;
+  }
+
+  // Build full query with node/way/relation center (heavier)
+  function buildFullQuery(tags) {
+    const parts = tags.map(t => {
+      const [k,v] = t.split("=");
+      return `node[${k}=${v}](around:${radius},${lat},${lon});
+              way[${k}=${v}](around:${radius},${lat},${lon});
+              relation[${k}=${v}](around:${radius},${lat},${lon});`;
+    }).join("\n");
+    // out center will include .center for ways/relations
+    return `[out:json][timeout:45];\n${parts}\nout center;`;
+  }
+
+  // small helper to perform fetch with abort timeout
+  async function fetchWithTimeout(url, body, timeoutMs = 20000) {
+    const ac = new AbortController();
+    const id = setTimeout(() => ac.abort(), timeoutMs);
     try {
-      const res = await fetch(overpassUrl);
-      const data = await res.json();
-
-      if (!data.elements || data.elements.length === 0) {
-        showPopup(
-          `No ${type}s found within ${(radius / 1000).toFixed(1)} km`,
-          4000
-        );
-        return;
-      }
-
-      data.elements.forEach((el) => {
-        if (el.lat && el.lon) {
-          L.marker([el.lat, el.lon])
-            .addTo(markersLayer)
-            .bindPopup(
-              `<strong>${
-                el.tags.name || type.toUpperCase()
-              }</strong><br>${type}`
-            );
-        }
-      });
-
-      showPopup(
-        `Found ${data.elements.length} ${type}(s) within ${(
-          radius / 1000
-        ).toFixed(1)} km`,
-        4000
-      );
+      const res = await fetch(url, { method: "POST", body, signal: ac.signal, headers: { "Content-Type": "application/x-www-form-urlencoded", "Referer": window.location.origin } });
+      clearTimeout(id);
+      return res;
     } catch (err) {
-      console.error(err);
-      showPopup("Error fetching data. Please try again later.", 4000);
+      clearTimeout(id);
+      throw err;
     }
   }
+
+  // Try endpoints sequentially. First, attempt nodes-only (fast). If nothing or error,
+  // try full query on same endpoint. Move to next endpoint if it fails / times out.
+  let responseJson = null;
+  let usedQueryType = null;
+  let usedEndpoint = null;
+
+  for (let epIdx = 0; epIdx < endpoints.length; epIdx++) {
+    const endpoint = endpoints[epIdx];
+    // try nodes-only first
+    const nodeQuery = buildNodesOnlyQuery(tagFilters);
+    try {
+      usedEndpoint = endpoint;
+      usedQueryType = "nodes";
+      const res = await fetchWithTimeout(endpoint, `data=${encodeURIComponent(nodeQuery)}`, 20000);
+      if (!res.ok) throw new Error(`Status ${res.status}`);
+      const data = await res.json();
+      if (Array.isArray(data.elements) && data.elements.length > 0) {
+        responseJson = data;
+        break; // success
+      }
+      // if nodes-only returned nothing, try full query on same endpoint
+    } catch (err) {
+      console.warn(`Overpass nodes-only failed @ ${endpoint}:`, err);
+      // fallthrough to try full query on same endpoint
+    }
+
+    // full query attempt
+    try {
+      usedQueryType = "full";
+      const fullQuery = buildFullQuery(tagFilters);
+      const res2 = await fetchWithTimeout(endpoint, `data=${encodeURIComponent(fullQuery)}`, 35000);
+      if (!res2.ok) throw new Error(`Status ${res2.status}`);
+      const data2 = await res2.json();
+      if (Array.isArray(data2.elements) && data2.elements.length > 0) {
+        responseJson = data2;
+        break; // success
+      } else {
+        console.warn(`Overpass full query returned no elements @ ${endpoint}`);
+      }
+    } catch (err) {
+      console.warn(`Overpass full query failed @ ${endpoint}:`, err);
+    }
+
+    // If we reach here, this endpoint didn't return results; try the next one.
+    // small backoff before next endpoint
+    await new Promise((r) => setTimeout(r, 700 + (epIdx * 300)));
+  }
+
+  if (!responseJson || !Array.isArray(responseJson.elements)) {
+    console.error("Overpass/search error: All endpoints failed or returned no results.");
+    showPopup("No results or Overpass overloaded. Try again in a bit.", 4000);
+    return;
+  }
+
+  // Convert elements into items with lat/lon (use .center for way/relation)
+  const items = responseJson.elements
+    .map(el => {
+      let elLat = el.lat, elLon = el.lon;
+      if ((el.type === "way" || el.type === "relation") && el.center) {
+        elLat = el.center.lat;
+        elLon = el.center.lon;
+      }
+      return {
+        id: el.id,
+        type: el.type,
+        lat: elLat,
+        lon: elLon,
+        tags: el.tags || {},
+      };
+    })
+    .filter(it => it.lat && it.lon);
+
+  if (items.length === 0) {
+    showPopup(`No ${type}s found within ${(radius/1000).toFixed(1)} km`, 4000);
+    return;
+  }
+
+  // Compute distance and sort
+  items.forEach(it => {
+    try { it.distance = map.distance([lat, lon], [it.lat, it.lon]); }
+    catch (e) { it.distance = null; }
+  });
+  items.sort((a, b) => {
+    if (a.distance == null && b.distance == null) return 0;
+    if (a.distance == null) return 1;
+    if (b.distance == null) return -1;
+    return a.distance - b.distance;
+  });
+
+  // limit results
+  const maxResults = 12;
+  const toShow = items.slice(0, maxResults);
+
+  // Add markers + click handler to set destination
+  toShow.forEach((it, idx) => {
+    const name = it.tags.name || type.toUpperCase();
+    const distText = (it.distance == null) ? "" : (it.distance < 1000 ? `${Math.round(it.distance)} m` : `${(it.distance/1000).toFixed(2)} km`);
+    const popupHtml = `<strong>${escapeHtml(name)}</strong><br>${escapeHtml(type)}${distText ? ` — ${distText}` : ""}`;
+
+    const marker = L.marker([it.lat, it.lon]).addTo(markersLayer);
+    marker.bindPopup(popupHtml);
+
+    marker.on("click", async () => {
+      try {
+        if (window.__NAV__ && typeof window.__NAV__.setDestination === "function") {
+          await window.__NAV__.setDestination({ lat: it.lat, lng: it.lon }, popupHtml);
+          const m = window.__NAV__.map;
+          if (m) m.setView([it.lat, it.lon], 15);
+        } else {
+          marker.openPopup();
+        }
+      } catch (err) {
+        console.warn("Failed to set destination from marker click:", err);
+        marker.openPopup();
+      }
+    });
+
+    // optionally open the popup for the first (closest) marker
+    if (idx === 0) marker.openPopup();
+  });
+
+  showPopup(`Found ${items.length} ${type}(s). Showing closest ${toShow.length}.`, 3500);
+}
+
+
 
   // ==============================
   // Advanced Search + Autocomplete
