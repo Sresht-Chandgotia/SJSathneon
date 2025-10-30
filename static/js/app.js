@@ -210,7 +210,51 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
-  
+  // ==========================
+// CLEAR DESTINATION BUTTON
+// ==========================
+const clearDestBtn = document.getElementById("clearDestinationBtn");
+if (clearDestBtn) {
+  clearDestBtn.addEventListener("click", () => {
+    // Use map.js clearDestination() if available
+    if (window.__NAV__ && typeof window.__NAV__.clearDestination === "function") {
+      window.__NAV__.clearDestination();
+      showPopup("Destination removed");
+    } else {
+      // fallback safety
+      try {
+        const map = window.__NAV__?.map;
+        if (window.__NAV__?.destinationMarker && map) {
+          if (map.hasLayer(window.__NAV__.destinationMarker)) map.removeLayer(window.__NAV__.destinationMarker);
+          window.__NAV__.destinationMarker = null;
+        }
+        if (window.__NAV__?.routeControl && map) {
+          map.removeControl(window.__NAV__.routeControl);
+          window.__NAV__.routeControl = null;
+        }
+        showPopup("Destination removed");
+      } catch (e) {
+        console.warn("Could not clear destination:", e);
+        showPopup("Unable to remove destination (check console).");
+      }
+    }
+  });
+}
+ 
+const modeButtons = document.querySelectorAll(".mode-btn");
+  modeButtons.forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const mode = btn.dataset.mode;
+      modeButtons.forEach((b) => b.classList.remove("active"));
+      btn.classList.add("active");
+      if (window.__NAV__ && typeof window.__NAV__.setRoutingMode === "function") {
+        window.__NAV__.setRoutingMode(mode);
+        showPopup(`Mode: ${mode}`, 1200);
+      } else {
+        showPopup(`Mode changed to ${mode}`, 1200);
+      }
+    });
+  });
   
 });
 

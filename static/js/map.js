@@ -1,10 +1,9 @@
 (function initMap() {
-  // --- MAP SETUP ---
+  // --- MAP SETUP (keep your existing code) ---
   const southWest = L.latLng(-85, -180);
   const northEast = L.latLng(85, 180);
   const worldBounds = L.latLngBounds(southWest, northEast);
 
-  // Initialize map (default: India)
   const map = L.map("map", {
     zoomControl: true,
     minZoom: 3,
@@ -14,7 +13,6 @@
     inertia: true,
   }).setView([20.5937, 78.9629], 5);
 
-  // Base tiles
   L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
     maxZoom: 19,
     noWrap: true,
@@ -28,12 +26,11 @@
     markersLayer.clearLayers();
   }
 
-  // --- ✅ USER LOCATION (precise & smooth) ---
+  // --- USER LOCATION (keep your existing code) ---
   let userMarker = null;
   let userCircle = null;
   let hasCentered = false;
 
-  // Inject CSS for pulsing dot + dest pin
   const style = document.createElement("style");
   style.textContent = `
     @keyframes pulse {
@@ -70,10 +67,9 @@
   `;
   document.head.appendChild(style);
 
-  // Update marker + circle
   function updateUserLocation(lat, lon, accuracy) {
     const latlng = L.latLng(lat, lon);
-    const radius = Math.min(accuracy, 100); // cap radius to 100 m for visuals
+    const radius = Math.min(accuracy, 100);
 
     if (!userMarker) {
       const userIcon = L.divIcon({
@@ -83,9 +79,7 @@
         iconAnchor: [7, 7],
       });
       userMarker = L.marker(latlng, { icon: userIcon }).addTo(map);
-    } else {
-      userMarker.setLatLng(latlng);
-    }
+    } else userMarker.setLatLng(latlng);
 
     if (!userCircle) {
       userCircle = L.circle(latlng, {
@@ -105,58 +99,72 @@
       hasCentered = true;
     }
 
-    // If a route exists, update the from waypoint to the new live location
-    if (window.__NAV__ && window.__NAV__.routeControl && window.__NAV__.destinationMarker) {
+    // update route start if route exists
+    if (window.__NAV__?.routeControl && window.__NAV__.destinationMarker) {
       try {
         window.__NAV__.routeControl.setWaypoints([latlng, window.__NAV__.destinationMarker.getLatLng()]);
-      } catch (e) {
-        // silent fail: routeControl may not be ready
-        console.warn("Failed to update route waypoints:", e);
-      }
+      } catch (e) { console.warn("Failed to update route waypoints:", e); }
     }
   }
 
-  // --- Use native Geolocation API for better control ---
+  // native geolocation watch (keep yours)
   function startHighAccuracyWatch() {
-    if (!navigator.geolocation) {
-      console.warn("Geolocation not supported.");
-      return;
-    }
-
+    if (!navigator.geolocation) { console.warn("Geolocation not supported."); return; }
     navigator.geolocation.watchPosition(
       (pos) => {
         const { latitude, longitude, accuracy } = pos.coords;
-
-        // Retry request if accuracy is poor (> 1000m)
-        if (accuracy > 1000) {
-          console.warn("Low accuracy detected:", accuracy);
-          return;
-        }
-
+        if (accuracy > 1000) { console.warn("Low accuracy detected:", accuracy); return; }
         updateUserLocation(latitude, longitude, accuracy);
       },
-      (err) => {
-        console.warn("Geolocation error:", err.message);
-      },
-      {
-        enableHighAccuracy: true,
-        maximumAge: 0,
-        timeout: 10000,
-      }
+      (err) => { console.warn("Geolocation error:", err.message); },
+      { enableHighAccuracy: true, maximumAge: 0, timeout: 10000 }
     );
   }
-
   startHighAccuracyWatch();
 
   // ----------------------------
-  // DESTINATION + ROUTING LOGIC
+  // ROUTING / DESTINATION LOGIC
   // ----------------------------
   let destinationMarker = null;
   let routeControl = null;
-  let lastFitOnce = false; // we will fit bounds the first time route is created
+  let lastFitOnce = false;
 
-  function createDestinationMarker(latlng) {
-    // create draggable marker with custom icon
+  // A small state: routing profile. default 'car'
+  const profileMap = { driving: "car", walking: "foot", cycling: "bike" };
+  let currentMode = "driving"; // corresponds to your HUD mode buttons
+  function getOsrmProfile() {
+    return profileMap[currentMode] || "car";
+  }
+
+  // SNAP-TO-ROAD using OSRM nearest
+  // Accepts a LatLng-like object {lat, lng} or L.LatLng
+  async function snapToRoad(latlng) {
+    if (!latlng) return latlng;
+    const profile = getOsrmProfile();
+    const lon = latlng.lng ?? latlng.lon ?? (Array.isArray(latlng) ? latlng[1] : undefined);
+    const lat = latlng.lat ?? (Array.isArray(latlng) ? latlng[0] : undefined);
+    if (lat === undefined || lon === undefined) return latlng;
+
+    const url = `https://router.project-osrm.org/nearest/v1/${profile}/${lon},${lat}?number=1`;
+    try {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error("Nearest request failed");
+      const data = await res.json();
+      if (data && data.waypoints && data.waypoints.length) {
+        const wp = data.waypoints[0];
+        // waypoint location is [lon, lat]
+        const snappedLat = wp.location[1];
+        const snappedLon = wp.location[0];
+        return L.latLng(snappedLat, snappedLon);
+      }
+    } catch (e) {
+      console.warn("snapToRoad failed:", e);
+    }
+    return latlng;
+  }
+
+  // Create or move destination marker (draggable)
+  function createDestinationMarker(latlng, popupHtml) {
     const destIcon = L.divIcon({
       className: "",
       html: `<div class="destination-pin"></div>`,
@@ -166,23 +174,30 @@
 
     if (!destinationMarker) {
       destinationMarker = L.marker(latlng, { icon: destIcon, draggable: true }).addTo(map);
-      destinationMarker.on("dragend", () => {
-        // recalc route when user drags destination
+      // on dragend: snap to road, then update route
+      destinationMarker.on("dragend", async (ev) => {
+        const pos = ev.target.getLatLng();
+        const snapped = await snapToRoad(pos);
+        destinationMarker.setLatLng(snapped);
         updateRoute();
       });
-      destinationMarker.bindPopup("Destination").openPopup();
     } else {
       destinationMarker.setLatLng(latlng);
     }
 
-    // store on global NAV for other modules
+    if (popupHtml) {
+      try { destinationMarker.bindPopup(popupHtml).openPopup(); } catch (e) {}
+    }
+
+    window.__NAV__ = window.__NAV__ || {};
     window.__NAV__.destinationMarker = destinationMarker;
     return destinationMarker;
   }
 
+  // Clear
   function clearDestination() {
     if (destinationMarker) {
-      try { map.removeLayer(destinationMarker); } catch (e) {}
+      try { if (map.hasLayer(destinationMarker)) map.removeLayer(destinationMarker); } catch (e) {}
       destinationMarker = null;
       if (window.__NAV__) window.__NAV__.destinationMarker = null;
     }
@@ -192,99 +207,224 @@
       if (window.__NAV__) window.__NAV__.routeControl = null;
     }
     lastFitOnce = false;
+    // also clear route info in HUD (if present)
+    const distEl = document.getElementById("routeDistance");
+    const etaEl = document.getElementById("routeEta");
+    if (distEl) distEl.textContent = "—";
+    if (etaEl) etaEl.textContent = "—";
   }
 
-  function updateRoute() {
-    // If no destination or no user marker, remove route (or do nothing)
-    if (!destinationMarker || !userMarker) {
-      if (routeControl) {
-        try { map.removeControl(routeControl); } catch (e) {}
-        routeControl = null;
-      }
-      if (window.__NAV__) window.__NAV__.routeControl = null;
-      return;
-    }
+// ==========================
+// MODE SPEEDS & STYLES
+// ==========================
+const modeSpeeds = {
+  driving: {
+    speedKmph: 18,
+    style: { weight: 7, dashArray: null, color: "#00f3ff", opacity: 0.98 } // bright cyan, solid
+  },
+  walking: {
+    speedKmph: 5,
+    style: { weight: 4, dashArray: "8,6", color: "#66cc66", opacity: 0.9 } // green dashed
+  },
+  cycling: {
+    speedKmph: 14,
+    style: { weight: 5, dashArray: "2,10", color: "#ff6b97ff", opacity: 0.95 } // orange dotted
+  }
+};
 
-    const from = userMarker.getLatLng();
-    const to = destinationMarker.getLatLng();
 
-    // if routeControl exists, only update waypoints (cheap)
+// ---------- REPLACEMENT updateRoute() ----------
+function updateRoute() {
+  if (!destinationMarker || !userMarker) {
     if (routeControl) {
-      try {
-        routeControl.setWaypoints([from, to]);
-      } catch (e) {
-        console.warn("setWaypoints failed, recreating routeControl:", e);
-        // fallback recreate
-        try { map.removeControl(routeControl); } catch (er) {}
-        routeControl = null;
-      }
-      return;
+      try { map.removeControl(routeControl); } catch (e) {}
+      routeControl = null;
+      if (window.__NAV__) window.__NAV__.routeControl = null;
     }
-
-    // Create new routing control
-    routeControl = L.Routing.control({
-      waypoints: [from, to],
-      router: L.Routing.osrmv1({
-        language: 'en',
-        profile: 'car'
-      }),
-      createMarker: function() { return null; }, // we use our own markers
-      addWaypoints: false,
-      routeWhileDragging: false,
-      showAlternatives: false,
-      fitSelectedRoutes: false, // we'll manually control fit
-      lineOptions: { styles: [{ color: "#00f3ff", opacity: 0.95, weight: 6 }] },
-      show: false
-    }).addTo(map);
-
-    if (window.__NAV__) window.__NAV__.routeControl = routeControl;
-
-    routeControl.on('routesfound', function(e) {
-      if (!lastFitOnce && e && e.routes && e.routes.length) {
-        const route = e.routes[0];
-        const bounds = L.latLngBounds(
-          route.coordinates.map(c => L.latLng(c.lat, c.lng))
-        );
-        map.fitBounds(bounds.pad(0.2));
-        lastFitOnce = true;
-      }
-    });
-
-    routeControl.on('routingerror', function(err) {
-      console.warn("Routing error:", err);
-    });
+    // clear HUD when no route
+    const distEl = document.getElementById("routeDistance");
+    const etaEl = document.getElementById("routeEta");
+    if (distEl) distEl.textContent = "—";
+    if (etaEl) etaEl.textContent = "—";
+    return;
   }
 
-  // Map click places/moves destination
-  map.on('click', function(e) {
-    createDestinationMarker(e.latlng);
+  const from = userMarker.getLatLng();
+  const to = destinationMarker.getLatLng();
+
+  // Remove old route control so we can recreate with new style/profile
+  if (routeControl) {
+    try { map.removeControl(routeControl); } catch (e) { console.warn(e); }
+    routeControl = null;
+    if (window.__NAV__) window.__NAV__.routeControl = null;
+  }
+
+  // Mode-specific style (defaults if not present)
+  const styleCfg = (modeSpeeds[currentMode] && modeSpeeds[currentMode].style) || {};
+  // Provide sensible defaults
+  const color = styleCfg.color || (currentMode === "walking" ? "#66cc66" : currentMode === "cycling" ? "#ffb86b" : "#00f3ff");
+  const weight = styleCfg.weight || (currentMode === "walking" ? 4 : currentMode === "cycling" ? 5 : 6);
+  const dashArray = styleCfg.dashArray ?? (currentMode === "walking" ? "6,6" : currentMode === "cycling" ? "2,8" : null);
+  const opacity = styleCfg.opacity ?? 0.95;
+
+  // Create routeControl with mode-specific lineOptions
+  routeControl = L.Routing.control({
+    waypoints: [from, to],
+    router: L.Routing.osrmv1({
+      profile: getOsrmProfile()
+    }),
+    createMarker: function() { return null; }, // use your own markers
+    addWaypoints: false,
+    routeWhileDragging: false,
+    showAlternatives: false,
+    fitSelectedRoutes: false,
+    lineOptions: {
+      // LRM accepts an array of style objects (first is topmost)
+      styles: [{
+        color: color,
+        opacity: opacity,
+        weight: weight,
+        dashArray: dashArray
+      }]
+    },
+    show: false
+  }).addTo(map);
+
+  if (window.__NAV__) window.__NAV__.routeControl = routeControl;
+
+  // When route found: compute distance & ETA client-side and fit once
+  routeControl.on("routesfound", function(e) {
+    try {
+      const r = e && e.routes && e.routes[0] ? e.routes[0] : null;
+      if (!r) {
+        const distEl = document.getElementById("routeDistance");
+        const etaEl = document.getElementById("routeEta");
+        if (distEl) distEl.textContent = "—";
+        if (etaEl) etaEl.textContent = "—";
+        return;
+      }
+
+      // Extract distance robustly
+      let meters = null;
+      if (typeof r.distance === "number") meters = r.distance;
+      else if (r.summary && typeof r.summary.totalDistance === "number") meters = r.summary.totalDistance;
+      else if (Array.isArray(r.legs)) {
+        try { meters = r.legs.reduce((s, leg) => s + (leg.distance || 0), 0); } catch (err) { meters = null; }
+      }
+
+      if (meters == null || Number.isNaN(meters)) {
+        meters = 0;
+        if (r.coordinates && r.coordinates.length > 1) {
+          for (let i = 1; i < r.coordinates.length; i++) {
+            const a = r.coordinates[i - 1], b = r.coordinates[i];
+            if (a && b) meters += map.distance([a.lat, a.lng], [b.lat, b.lng]);
+          }
+        }
+      }
+
+      // Compute ETA client-side using modeSpeeds
+      const speedKmph = (modeSpeeds[currentMode] && modeSpeeds[currentMode].speedKmph) || 45;
+      const speedMps = (speedKmph * 1000) / 3600;
+      let seconds = null;
+      if (meters != null && !Number.isNaN(meters) && speedMps > 0) seconds = Math.round(meters / speedMps);
+
+      // Update HUD
+      const distEl = document.getElementById("routeDistance");
+      const etaEl = document.getElementById("routeEta");
+      if (distEl) {
+        if (meters < 1000) distEl.textContent = `${Math.round(meters)} m`;
+        else distEl.textContent = `${(meters / 1000).toFixed(2)} km`;
+      }
+      if (etaEl) {
+        if (seconds != null) etaEl.textContent = `${Math.round(seconds / 60)} min`;
+        else etaEl.textContent = "—";
+      }
+
+      // Fit bounds once to avoid jarring jumps
+      if (!lastFitOnce && r.coordinates && r.coordinates.length) {
+        try {
+          const bounds = L.latLngBounds(r.coordinates.map(c => L.latLng(c.lat, c.lng)));
+          map.fitBounds(bounds.pad(0.18));
+          lastFitOnce = true;
+        } catch (err) { /* noop */ }
+      }
+    } catch (err) {
+      console.warn("Error processing route:", err);
+    }
+  });
+
+  routeControl.on("routingerror", function(err) {
+    console.warn("Routing error:", err);
+    const distEl = document.getElementById("routeDistance");
+    const etaEl = document.getElementById("routeEta");
+    if (distEl) distEl.textContent = "—";
+    if (etaEl) etaEl.textContent = "—";
+  });
+}
+// ---------- end replacement ----------
+
+
+
+  // On map click: create destination then snap and update route
+  map.on("click", async (e) => {
+    const initial = e.latlng;
+    // create marker immediately for good UI feedback
+    createDestinationMarker(initial);
+    // snap to nearest road then move the marker and update route
+    const snapped = await snapToRoad(initial);
+    if (snapped) destinationMarker.setLatLng(snapped);
     updateRoute();
   });
 
-  // <<< ADDED: helper so other modules (app.js) can set destination programmatically
-  function setDestination(latlng, popupHtml) {
-    const m = createDestinationMarker(latlng);
-    if (popupHtml && m) {
-      try {
-        m.bindPopup(popupHtml).openPopup();
-      } catch (e) {}
+  // Programmatic setDestination — used by search
+  async function setDestination(latlngLike, popupHtml) {
+    const latlng = L.latLng(latlngLike.lat ?? latlngLike[0], latlngLike.lng ?? latlngLike[1] ?? latlngLike.lon);
+    // create immediate marker for UX
+    createDestinationMarker(latlng, popupHtml);
+    // snap to road according to profile
+    const snapped = await snapToRoad(latlng);
+    if (snapped) {
+      destinationMarker.setLatLng(snapped);
+      if (popupHtml) destinationMarker.openPopup();
     }
     updateRoute();
-    return m;
+    return destinationMarker;
   }
-  // <<< END ADDED
 
-  // Expose destination/route control utilities to global NAV object for other modules (app.js, UI, etc.)
+// ---------- REPLACE setRoutingMode() WITH THIS ----------
+function setRoutingMode(mode) {
+  if (!mode) return;
+  if (!["driving", "walking", "cycling"].includes(mode)) return;
+  currentMode = mode;
+
+  // Recreate route with new visual options and recompute ETA client-side
+  if (destinationMarker) {
+    if (routeControl) {
+      try { map.removeControl(routeControl); } catch (e) { console.warn(e); }
+      routeControl = null;
+      if (window.__NAV__) window.__NAV__.routeControl = null;
+    }
+    lastFitOnce = false;
+    updateRoute(); // this will compute ETA using the chosen mode speed
+  }
+}
+
+// ---------- end setRoutingMode replacement ----------
+
+
+  // Expose functions to the rest of the app
   window.__NAV__ = window.__NAV__ || {};
   window.__NAV__.map = map;
   window.__NAV__.markersLayer = markersLayer;
   window.__NAV__.clearMarkers = clearMarkers;
-  window.__NAV__.clearDestination = clearDestination;
-  // <<< EXPORTED: setDestination
+  window.__NAV__.destinationMarker = destinationMarker;
+  window.__NAV__.routeControl = routeControl;
   window.__NAV__.setDestination = setDestination;
-  // destinationMarker and routeControl are assigned when created
+  window.__NAV__.clearDestination = clearDestination;
+  window.__NAV__.setRoutingMode = setRoutingMode;
+  window.__NAV__._getCurrentMode = () => currentMode;
 
-  // --- EXPORT FOR APP.JS (compatibility) ---
+  // keep original compatibility names
   window.map = map;
   window.markersLayer = markersLayer;
   window.clearMarkers = clearMarkers;
