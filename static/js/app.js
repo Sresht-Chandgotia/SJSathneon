@@ -44,64 +44,160 @@ document.addEventListener("DOMContentLoaded", () => {
   // is pressed with no focused suggestion).
 
   async function searchPlace(query) {
-    const map = window.__NAV__?.map;
-    const markersLayer = window.__NAV__?.markersLayer;
-    const clearMarkers = window.__NAV__?.clearMarkers;
+  const map = window.__NAV__?.map;
+  const markersLayer = window.__NAV__?.markersLayer;
+  const clearMarkers = window.__NAV__?.clearMarkers;
 
-    if (!map || !markersLayer || !clearMarkers) {
-      console.error("Map not initialized yet.");
-      showPopup("Map is still loading. Try again in a moment!");
+  if (!map || !markersLayer || !clearMarkers) {
+    console.error("Map not initialized yet.");
+    showPopup("Map is still loading. Try again in a moment!");
+    return;
+  }
+
+  showPopup(`Searching for "${query}"...`);
+
+  try {
+    const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(query)}`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`Nominatim returned ${res.status}`);
+    const data = await res.json();
+
+    if (!data || data.length === 0) {
+      showPopup("No results found!");
       return;
     }
 
-    showPopup(`Searching for "${query}"...`);
+    const place = data[0];
+    const lat = parseFloat(place.lat);
+    const lon = parseFloat(place.lon);
 
+    // clear previous simple markers (keeps destination/start markers if you want)
+    clearMarkers();
+
+    // Build a POI-like object compatible with your favorites helpers
+    const poi = {
+      id: place.osm_id ? `nominatim:${place.osm_type || 'x'}:${place.osm_id}` : `search:${Date.now()}`,
+      type: place.type || "place",
+      lat,
+      lon,
+      tags: { name: place.display_name },
+      name: place.display_name,
+      display_name: place.display_name
+    };
+
+    const fav = isFavorite(poi);
+    const favLabel = fav ? "★ Favorited" : "☆ Favorite";
+    const prettyName = place.display_name.split(",")[0] || place.display_name;
+
+    const distText = ""; // no live-distance here (could compute if you want)
+    const popupHtml = `<div style="min-width:200px">
+      <strong>${escapeHtml(prettyName)}</strong><br/>
+      <small style="color:#888">${escapeHtml(place.display_name)}</small>
+      <div style="margin-top:8px; display:flex; gap:8px; align-items:center;">
+        <button data-action="goto" data-lat="${lat}" data-lon="${lon}" class="chip">Go</button>
+        <button data-action="fav" data-id="${escapeHtml(poi.id)}" class="chip">${favLabel}</button>
+        <button data-action="setstart" data-lat="${lat}" data-lon="${lon}" class="chip">Set as start</button>
+      </div>
+    </div>`;
+
+// Create marker in markersLayer (so it can be cleared by clearMarkers)
+const marker = L.marker([lat, lon]).addTo(markersLayer);
+marker.bindPopup(popupHtml);
+
+// center map to the searched place but do not create a route automatically
+map.setView([lat, lon], 15);
+
+// wire popup interactions on open (attach listener BEFORE opening)
+marker.on("popupopen", (ev) => {
+  const popupEl = ev.popup.getElement();
+  if (!popupEl) return;
+
+  // GOTO -> set as destination (keeps existing setDestination behavior)
+  const gotoBtn = popupEl.querySelector('button[data-action="goto"]');
+  if (gotoBtn) gotoBtn.addEventListener("click", async () => {
     try {
-      const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(
-        query
-      )}`;
-      const res = await fetch(url);
-      const data = await res.json();
-
-      if (!data || data.length === 0) {
-        showPopup("No results found!");
-        return;
-      }
-
-      const place = data[0];
-      const lat = parseFloat(place.lat);
-      const lon = parseFloat(place.lon);
-
-      // keep clearing any previous simple markers (but not the destination pin)
-      // if you want to also clear the destination on new searches, call window.__NAV__.clearDestination()
-      clearMarkers();
-
-      // Use the same destination marker (so click-created marker and search-created marker are identical)
       if (window.__NAV__ && typeof window.__NAV__.setDestination === "function") {
-        const popupHtml = `<strong>${place.display_name}</strong>`;
-        // setDestination accepts an object/LatLng
-        window.__NAV__.setDestination({ lat, lng: lon }, popupHtml);
-
-        // center map to the searched place
+        await window.__NAV__.setDestination({ lat: lat, lng: lon }, `<strong>${escapeHtml(prettyName)}</strong>`);
         map.setView([lat, lon], 15);
+      } else {
+        marker.openPopup();
+      }
+    } catch (err) {
+      console.warn("Failed to set destination from search marker:", err);
+      marker.openPopup();
+    }
+  });
 
-        showPopup(`Showing results for "${query}"`);
+  // FAVORITE -> prompt name if not favorite, else remove immediately
+  const favBtn = popupEl.querySelector('button[data-action="fav"]');
+  if (favBtn) favBtn.addEventListener("click", async () => {
+    try {
+      const currentFav = isFavorite(poi);
+      if (currentFav) {
+        // remove
+        toggleFavorite(poi);
+        favBtn.textContent = "☆ Favorite";
+        renderFavorites();
+        showPopup("Removed from favorites", 1200);
         return;
       }
 
-      // fallback (shouldn't happen) — create simple marker in markersLayer
-      L.marker([lat, lon])
-        .addTo(markersLayer)
-        .bindPopup(`<strong>${place.display_name}</strong>`)
-        .openPopup();
+      // ask for a name before saving
+      const suggested = poi.name || prettyName || "";
+      const chosen = await promptFavoriteName(suggested);
+      if (!chosen) {
+        // cancelled by user
+        return;
+      }
 
-      map.setView([lat, lon], 15);
-      showPopup(`Showing results for "${query}"`);
+      const toSave = {
+        id: poi.id,
+        type: poi.type,
+        lat: poi.lat,
+        lon: poi.lon,
+        name: chosen,
+        tags: poi.tags || {}
+      };
+
+      toggleFavorite(toSave); // toggleFavorite will add if not present
+      favBtn.textContent = "★ Favorited";
+      renderFavorites();
+      showPopup("Saved to favorites", 1200);
     } catch (err) {
-      console.error("Search failed:", err);
-      showPopup("Error while searching. Check console for details.");
+      console.warn("Favorite action failed:", err);
+      showPopup("Could not update favorite", 1500);
     }
+  });
+
+  // SET AS START -> create a custom start marker and update route (if dest exists)
+  const startBtn = popupEl.querySelector('button[data-action="setstart"]');
+  if (startBtn) startBtn.addEventListener("click", async () => {
+    try {
+      if (window.__NAV__ && typeof window.__NAV__.createStartMarker === "function") {
+        await window.__NAV__.createStartMarker(L.latLng(lat, lon), `<strong>Start: ${escapeHtml(prettyName)}</strong>`);
+        map.setView([lat, lon], 15);
+        showPopup("Start location set", 1200);
+      } else {
+        showPopup("Start feature unavailable", 1400);
+      }
+    } catch (err) {
+      console.warn("Failed to set start:", err);
+      showPopup("Could not set start", 1400);
+    }
+  });
+});
+
+// now open the popup (listener is already attached)
+marker.openPopup();
+
+
+    showPopup(`Found: ${prettyName}`, 1400);
+  } catch (err) {
+    console.error("Search failed:", err);
+    showPopup("Error while searching. Check console for details.");
   }
+}
+
 
   // --- CATEGORY SEARCH + POPUPS ---
   const categoryButtons = document.querySelectorAll(".chip");
@@ -792,38 +888,141 @@ function renderNearbyItems(items, categoryType, centerLat, centerLon) {
       }, 300);
     }
 
-    async function chooseSuggestion(idx) {
-      const item = currentSuggestions[idx];
-      if (!item) return;
-      searchInput.value = item.display_name;
-      hideList();
+async function chooseSuggestion(idx) {
+  const item = currentSuggestions[idx];
+  if (!item) return;
+  searchInput.value = item.display_name;
+  hideList();
 
-      if (window.__NAV__ && typeof window.__NAV__.setDestination === "function") {
-        try {
-          await window.__NAV__.setDestination({ lat: item.lat, lng: item.lon }, `<strong>${escapeHtml(item.display_name)}</strong>`);
-          const m = window.__NAV__.map;
-          if (m) m.setView([item.lat, item.lon], 15);
-        } catch (err) {
-          console.warn("Failed to set destination from search:", err);
-        }
-      } else {
-        try {
-          // create a small poi object and save
-          const poi = { id: `search:${Date.now()}`, type: item.type || 'search', lat: item.lat, lon: item.lon, name: item.display_name };
-          addFavoriteFromPOI(poi);
-          showPopup("Added to favorites", 1600);
-
-                    const m = window.__NAV__?.map;
-          const markers = window.__NAV__?.markersLayer;
-          if (markers) {
-            L.marker([item.lat, item.lon]).addTo(markers).bindPopup(`<strong>${escapeHtml(item.display_name)}</strong>`).openPopup();
-          } else if (m) {
-            L.marker([item.lat, item.lon]).addTo(m).bindPopup(`<strong>${escapeHtml(item.display_name)}</strong>`).openPopup();
-            m.setView([item.lat, item.lon], 15);
-          }
-        } catch (e) { console.warn(e); }
-      }
+  const map = window.__NAV__?.map;
+  const markersLayer = window.__NAV__?.markersLayer;
+  const clearMarkers = window.__NAV__?.clearMarkers;
+  if (!map || !markersLayer || !clearMarkers) {
+    // fallback: directly set destination if map isn't ready
+    if (window.__NAV__ && typeof window.__NAV__.setDestination === "function") {
+      try {
+        await window.__NAV__.setDestination({ lat: item.lat, lng: item.lon }, `<strong>${escapeHtml(item.display_name)}</strong>`);
+        const m = window.__NAV__.map;
+        if (m) m.setView([item.lat, item.lon], 15);
+      } catch (err) { console.warn("Failed to set destination from search:", err); }
     }
+    return;
+  }
+
+  // Clear previous simple markers but keep destination/start markers intact
+  clearMarkers();
+
+  // Build a POI object (compatible with favorites helpers)
+  const poi = {
+    id: item.osm_id ? `nominatim:${item.osm_type || 'x'}:${item.osm_id}` : `search:${Date.now()}`,
+    type: item.type || "place",
+    lat: item.lat,
+    lon: item.lon,
+    name: item.display_name,
+    tags: item.address || {}
+  };
+
+  const fav = isFavorite(poi);
+  const favLabel = fav ? "★ Favorited" : "☆ Favorite";
+  const prettyName = (item.display_name || "").split(",")[0] || item.display_name;
+
+  const popupHtml = `<div style="min-width:200px">
+    <strong>${escapeHtml(prettyName)}</strong><br/>
+    <small style="color:#888">${escapeHtml(item.display_name)}</small>
+    <div style="margin-top:8px; display:flex; gap:8px; align-items:center;">
+      <button data-action="goto" data-lat="${item.lat}" data-lon="${item.lon}" class="chip">Go</button>
+      <button data-action="fav" data-id="${escapeHtml(poi.id)}" class="chip">${favLabel}</button>
+      <button data-action="setstart" data-lat="${item.lat}" data-lon="${item.lon}" class="chip">Set as start</button>
+    </div>
+  </div>`;
+
+  // create the marker
+  const marker = L.marker([item.lat, item.lon]).addTo(markersLayer);
+  marker.bindPopup(popupHtml);
+
+  // IMPORTANT: attach the popupopen handler BEFORE opening the popup
+  marker.on("popupopen", (ev) => {
+    const popupEl = ev.popup.getElement();
+    if (!popupEl) return;
+
+    // remove any existing listeners on popup buttons (defensive) to avoid duplicates
+    const cloneAndReplace = (sel) => {
+      const el = popupEl.querySelector(sel);
+      if (!el) return null;
+      const newEl = el.cloneNode(true);
+      el.parentNode.replaceChild(newEl, el);
+      return newEl;
+    };
+
+    // GOTO
+    const gotoBtn = cloneAndReplace('button[data-action="goto"]');
+    if (gotoBtn) gotoBtn.addEventListener("click", async () => {
+      try {
+        if (window.__NAV__ && typeof window.__NAV__.setDestination === "function") {
+          await window.__NAV__.setDestination({ lat: item.lat, lng: item.lon }, `<strong>${escapeHtml(prettyName)}</strong>`);
+          map.setView([item.lat, item.lon], 15);
+        } else {
+          marker.openPopup();
+        }
+      } catch (err) { console.warn(err); marker.openPopup(); }
+    });
+
+    // FAVORITE
+    const favBtn = cloneAndReplace('button[data-action="fav"]');
+    if (favBtn) favBtn.addEventListener("click", async () => {
+      try {
+        if (isFavorite(poi)) {
+          toggleFavorite(poi);
+          favBtn.textContent = "☆ Favorite";
+          renderFavorites();
+          showPopup("Removed from favorites", 1200);
+          return;
+        }
+        const suggested = poi.name || prettyName || "";
+        const chosen = await promptFavoriteName(suggested);
+        if (!chosen) return; // cancelled
+        const toSave = {
+          id: poi.id,
+          type: poi.type,
+          lat: poi.lat,
+          lon: poi.lon,
+          name: chosen,
+          tags: poi.tags || {}
+        };
+        toggleFavorite(toSave);
+        favBtn.textContent = "★ Favorited";
+        renderFavorites();
+        showPopup("Saved to favorites", 1200);
+      } catch (err) {
+        console.warn("Favorite action failed:", err);
+        showPopup("Could not update favorite", 1500);
+      }
+    });
+
+    // SET AS START
+    const startBtn = cloneAndReplace('button[data-action="setstart"]');
+    if (startBtn) startBtn.addEventListener("click", async () => {
+      try {
+        if (window.__NAV__ && typeof window.__NAV__.createStartMarker === "function") {
+          await window.__NAV__.createStartMarker(L.latLng(item.lat, item.lon), `<strong>Start: ${escapeHtml(prettyName)}</strong>`);
+          map.setView([item.lat, item.lon], 15);
+          showPopup("Start location set", 1200);
+        } else {
+          showPopup("Start feature unavailable", 1400);
+        }
+      } catch (err) {
+        console.warn("Failed to set start:", err);
+        showPopup("Could not set start", 1400);
+      }
+    });
+  });
+
+  // now open the popup (listener is already attached)
+  marker.openPopup();
+  map.setView([item.lat, item.lon], 15);
+}
+
+
 
     searchInput.addEventListener("keydown", (ev) => {
       const key = ev.key;
@@ -1044,3 +1243,4 @@ if (hudToggle && hud && hudClose) {
     document.body.classList.remove("hud-open");
   });
 }
+
