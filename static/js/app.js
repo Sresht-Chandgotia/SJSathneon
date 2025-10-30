@@ -514,3 +514,18 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
 });
+
+//Nav bar upgrade
+const hud = document.querySelector(".hud");
+const hudToggle = document.getElementById("hudToggle");
+const hudClose = document.getElementById("hudClose");
+
+hudToggle.addEventListener("click", () => {
+  hud.classList.add("expanded");
+  document.body.classList.add("hud-open"); // 👈 Add this line
+});
+
+hudClose.addEventListener("click", () => {
+  hud.classList.remove("expanded");
+  document.body.classList.remove("hud-open"); // 👈 Add this line
+});
