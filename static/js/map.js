@@ -65,11 +65,18 @@
       box-shadow: 0 0 10px rgba(0,243,255,0.6);
     }
   `;
+
+  if (position.coords.accuracy > 100) {
+    accuracyCircle.setStyle({ color: "#f87171", opacity: 0.4 }); // redish
+  } else {
+    accuracyCircle.setStyle({ color: "#22c55e", opacity: 0.2 }); // greenish
+  }
+
   document.head.appendChild(style);
 
   function updateUserLocation(lat, lon, accuracy) {
     const latlng = L.latLng(lat, lon);
-    const radius = Math.min(accuracy, 100);
+    const radius = Math.min(accuracy, 10);
 
     if (!userMarker) {
       const userIcon = L.divIcon({
@@ -775,6 +782,20 @@
   window.__NAV__.createStartMarker = createStartMarker; // new
   window.__NAV__.clearStartMarker = clearStartMarker; // new
   window.__NAV__.startMarker = startMarker; // helpful reference
+
+  // ----------------------------
+  // ALWAYS-ON TRAFFIC OVERLAY
+  // ----------------------------
+  const trafficLayer = L.tileLayer(
+    "https://{s}.tile.opentrafficmap.org/traffic/{z}/{x}/{y}.png",
+    {
+      attribution: "&copy; OpenTrafficMap contributors",
+      maxZoom: 19,
+      opacity: 0.8,
+    }
+  );
+  trafficLayer.addTo(map);
+
   window.__NAV__._getCurrentMode = () => currentMode;
 
   // keep original compatibility names
